@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Editor - AI Destekli Metin Düzenleme</title>
+    <meta name="description"
+        content="PDF belgelerinizi AI yardımıyla düzenleyin. Seçtiğiniz alanları işaretleyin ve metni otomatik olarak yeniden oluşturun.">
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="badges.css">
+    <link rel="stylesheet" href="modal-styles.css">
+    <!-- Local Libraries for Electron -->
+    <script src="libs/pdf.min.js"></script>
+    <script src="libs/pdf-lib.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <rect width="32" height="32" rx="8" fill="url(#gradient)" />
+                    <path d="M9 12H23M9 16H23M9 20H17" stroke="white" stroke-width="2" stroke-linecap="round" />
+                    <defs>
+                        <linearGradient id="gradient" x1="0" y1="0" x2="32" y2="32">
+                            <stop offset="0%" stop-color="#667eea" />
+                            <stop offset="100%" stop-color="#764ba2" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <h1>PDF Editor AI</h1>
+            </div>
+            <div class="header-actions">
+                <button id="downloadBtn" class="btn btn-secondary" disabled>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    İndir
+                </button>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="upload-section">
+                    <input type="file" id="fileInput" accept=".pdf" hidden>
+                    <button id="uploadBtn" class="btn btn-primary">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        PDF Yükle
+                    </button>
+                </div>
+
+                <div class="tools-section">
+                    <h3>Araçlar</h3>
+                    <div class="tool-group">
+                        <button id="replaceTool" class="tool-btn active">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                            Metin Değiştir
+                        </button>
+                        <button id="addTool" class="tool-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M12 5v14M5 12h14" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            Metin Ekle
+                        </button>
+                        <button id="moveTool" class="tool-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path
+                                    d="M5.5 5.5A2.5 2.5 0 018 3h8a2.5 2.5 0 012.5 2.5V18a2.5 2.5 0 01-2.5 2.5H8A2.5 2.5 0 015.5 18V5.5zM3 5.5A5.5 5.5 0 018.5 0h7A5.5 5.5 0 0121 5.5v13a5.5 5.5 0 01-5.5 5.5h-7A5.5 5.5 0 013 18.5v-13z"
+                                    opacity="0" />
+                                <path d="M3 3l7 7 7-7M3 21l7-7 7 7" stroke="none" />
+                                <path d="M15.5 15.5l-5-5-5 5" stroke="none" />
+                                <path d="M14.08 19.92L11 23l-3.08-3.08M11 23v-8.17M7 11H3l4-4 4 4M21 11h-4l4-4-4 4"
+                                    stroke="none" />
+                                <path d="M7 2l12 11h-5l4 8-3 1-5-14z" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            Seç / Taşı
+                        </button>
+                    </div>
+                </div>
+
+                <div class="annotations-section">
+                    <h3>Düzenlemeler</h3>
+                    <div id="annotationsList" class="annotations-list">
+                        <p class="empty-state">Henüz düzenleme yok</p>
+                    </div>
+                </div>
+
+                <div class="api-section">
+                    <h3>AI Ayarları</h3>
+                    <div class="input-group">
+                        <label for="apiKey">Gemini API Key</label>
+                        <div class="password-wrapper">
+                            <input type="password" id="apiKey" placeholder="API anahtarınızı girin">
+                            <button class="password-toggle" id="toggleApiKey" title="Göster/Gizle">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="api-status" id="apiStatus">
+                            <span class="status-dot inactive"></span>
+                            <span class="status-text">API anahtarı girilmedi</span>
+                        </div>
+                        <button class="btn btn-outline btn-sm" id="testApiBtn"
+                            style="margin-top: 0.5rem; padding: 0.5rem 1rem; font-size: 0.8rem;">
+                            API'yi Test Et
+                        </button>
+                        <small>Font eşleştirme için gerekli. <a href="https://aistudio.google.com/app/apikey"
+                                target="_blank" style="color: var(--primary);">Anahtar al</a></small>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Canvas Area -->
+            <main class="canvas-area">
+                <div id="dropZone" class="drop-zone">
+                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke-width="2" />
+                        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke-width="2" stroke-linecap="round"
+                            stroke-linejoin="round" />
+                    </svg>
+                    <h2>PDF belgesi yükleyin</h2>
+                    <p>Dosyayı sürükleyip bırakın veya tıklayarak seçin</p>
+                    <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">
+                        Dosya Seç
+                    </button>
+                </div>
+
+                <div id="canvasContainer" class="canvas-container" style="display: none;">
+                    <div class="canvas-controls">
+                        <button id="zoomOut" class="control-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="11" cy="11" r="8" stroke-width="2" />
+                                <path d="M21 21l-4.35-4.35M8 11h6" stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <span id="zoomLevel">100%</span>
+                        <button id="zoomIn" class="control-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="11" cy="11" r="8" stroke-width="2" />
+                                <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <div class="page-controls">
+                            <button id="prevPage" class="control-btn" disabled>◀</button>
+                            <span id="pageInfo">Sayfa 1 / 1</span>
+                            <button id="nextPage" class="control-btn" disabled>▶</button>
+                        </div>
+                    </div>
+
+                    <div class="canvas-wrapper">
+                        <div class="canvas-holder">
+                            <canvas id="pdfCanvas"></canvas>
+                            <canvas id="annotationCanvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Text Input Modal -->
+    <div id="textModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Metin Düzenle</h3>
+                <button class="close-btn" onclick="closeTextModal()">×</button>
+            </div>
+            <div class="modal-body">
+                <textarea id="textInput" placeholder="Eklemek istediğiniz metni yazın..."></textarea>
+
+                <div class="style-controls">
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Font</label>
+                            <select id="fontFamily">
+                                <option value="Inter">Inter</option>
+                                <option value="Arial">Arial</option>
+                                <option value="Times New Roman">Times New Roman</option>
+                                <option value="Courier New">Courier New</option>
+                                <option value="Georgia">Georgia</option>
+                                <option value="Verdana">Verdana</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Boyut (px)</label>
+                            <input type="number" id="fontSize" value="14" min="8" max="72">
+                        </div>
+                    </div>
+
+                    <div class="control-row">
+                        <div class="control-group">
+                            <label>Renk</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" id="textColor" value="#000000">
+                                <span id="colorValue">#000000</span>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label>Stil</label>
+                            <div class="style-toggles">
+                                <label class="style-toggle">
+                                    <input type="checkbox" id="fontBold">
+                                    <span class="toggle-btn" title="Kalın">B</span>
+                                </label>
+                                <label class="style-toggle">
+                                    <input type="checkbox" id="fontItalic">
+                                    <span class="toggle-btn italic" title="İtalik">I</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="useAI" checked>
+                        <span>AI ile font boyutunu eşleştir</span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeTextModal()">İptal</button>
+                <button class="btn btn-primary" onclick="applyText()">Uygula</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

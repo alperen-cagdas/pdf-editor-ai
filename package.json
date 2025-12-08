@@ -1,0 +1,66 @@
+{
+    "name": "pdf-editor-ai",
+    "version": "1.0.0",
+    "description": "PDF Editor - AI Destekli Metin Düzenleme Uygulaması",
+    "main": "main.js",
+    "author": "PDF Editor Team",
+    "license": "MIT",
+    "scripts": {
+        "start": "electron .",
+        "build": "electron-builder",
+        "build:win": "electron-builder --win",
+        "build:portable": "electron-builder --win portable"
+    },
+    "build": {
+        "appId": "com.pdfeditor.ai",
+        "productName": "PDF Editor AI",
+        "directories": {
+            "output": "dist"
+        },
+        "files": [
+            "**/*",
+            "!dist/**",
+            "!electron-dist/**",
+            "!build/**",
+            "!electron-v28.0.0-win32-x64.zip",
+            "!node_modules/.cache/**"
+        ],
+        "win": {
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ],
+            "icon": "icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "perMachine": true,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "PDF Editor AI",
+            "installerIcon": "icon.ico",
+            "uninstallerIcon": "icon.ico",
+            "installerHeaderIcon": "icon.ico",
+            "deleteAppDataOnUninstall": true
+        },
+        "publish": {
+            "provider": "github",
+            "owner": "YOUR_GITHUB_USERNAME",
+            "repo": "pdf-editor-ai",
+            "releaseType": "release"
+        }
+    },
+    "devDependencies": {
+        "electron": "^28.0.0",
+        "electron-builder": "^24.9.1",
+        "electron-icon-builder": "^2.0.1"
+    },
+    "dependencies": {
+        "electron-updater": "^6.6.2"
+    }
+}
