@@ -58,6 +58,7 @@ input[type="number"]:focus {
 
 input[type="color"] {
     -webkit-appearance: none;
+    appearance: none;
     border: none;
     width: 24px;
     height: 24px;
@@ -84,10 +85,22 @@ input[type="color"]::-webkit-color-swatch {
     color: var(--text-secondary);
 }
 
-/* Style Toggles (Bold/Italic) */
+/* Style Toggles (Bold/Italic/Alignment) */
 .style-toggles {
     display: flex;
     gap: 0.5rem;
+    align-items: center;
+}
+
+.style-toggles.unified {
+    flex-wrap: wrap;
+}
+
+.style-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+    margin: 0 0.25rem;
 }
 
 .style-toggle input {
@@ -119,4 +132,50 @@ input[type="color"]::-webkit-color-swatch {
     background: var(--primary);
     color: white;
     border-color: var(--primary);
+}
+
+.style-toggle .toggle-btn svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+}
+
+/* Alignment Toggles */
+.align-toggles {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.align-toggle input {
+    display: none;
+}
+
+.align-toggle .toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.align-toggle .toggle-btn:hover {
+    border-color: var(--primary);
+    color: var(--text-primary);
+}
+
+.align-toggle input:checked+.toggle-btn {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
+.align-toggle .toggle-btn svg {
+    width: 16px;
+    height: 16px;
 }

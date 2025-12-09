@@ -46,16 +46,7 @@
         <div class="main-content">
             <!-- Sidebar -->
             <aside class="sidebar">
-                <div class="upload-section">
-                    <input type="file" id="fileInput" accept=".pdf" hidden>
-                    <button id="uploadBtn" class="btn btn-primary">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" stroke-width="2"
-                                stroke-linecap="round" stroke-linejoin="round" />
-                        </svg>
-                        PDF Yükle
-                    </button>
-                </div>
+                <input type="file" id="fileInput" accept=".pdf" hidden>
 
                 <div class="tools-section">
                     <h3>Araçlar</h3>
@@ -76,15 +67,28 @@
                             </svg>
                             Metin Ekle
                         </button>
+                        <button id="addImageTool" class="tool-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                                <circle cx="8.5" cy="8.5" r="1.5" stroke-width="2" />
+                                <path d="M21 15l-5-5L5 21" stroke-width="2" stroke-linecap="round"
+                                    stroke-linejoin="round" />
+                            </svg>
+                            Görsel Ekle
+                        </button>
+                        <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+                        <button id="removeObjectTool" class="tool-btn">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" stroke-width="2"
+                                    stroke-linecap="round" stroke-linejoin="round" />
+                                <line x1="18" y1="9" x2="12" y2="15" stroke-width="2" stroke-linecap="round" />
+                                <line x1="12" y1="9" x2="18" y2="15" stroke-width="2" stroke-linecap="round" />
+                            </svg>
+                            Obje Kaldır
+                        </button>
                         <button id="moveTool" class="tool-btn">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <path
-                                    d="M5.5 5.5A2.5 2.5 0 018 3h8a2.5 2.5 0 012.5 2.5V18a2.5 2.5 0 01-2.5 2.5H8A2.5 2.5 0 015.5 18V5.5zM3 5.5A5.5 5.5 0 018.5 0h7A5.5 5.5 0 0121 5.5v13a5.5 5.5 0 01-5.5 5.5h-7A5.5 5.5 0 013 18.5v-13z"
-                                    opacity="0" />
-                                <path d="M3 3l7 7 7-7M3 21l7-7 7 7" stroke="none" />
-                                <path d="M15.5 15.5l-5-5-5 5" stroke="none" />
-                                <path d="M14.08 19.92L11 23l-3.08-3.08M11 23v-8.17M7 11H3l4-4 4 4M21 11h-4l4-4-4 4"
-                                    stroke="none" />
                                 <path d="M7 2l12 11h-5l4 8-3 1-5-14z" stroke-width="2" stroke-linecap="round"
                                     stroke-linejoin="round" />
                             </svg>
@@ -97,6 +101,109 @@
                     <h3>Düzenlemeler</h3>
                     <div id="annotationsList" class="annotations-list">
                         <p class="empty-state">Henüz düzenleme yok</p>
+                    </div>
+                </div>
+
+                <!-- Inline Text Editor Panel -->
+                <div id="textEditorPanel" class="text-editor-panel" style="display: none;">
+                    <h3>Metin Düzenle</h3>
+                    <div class="editor-content">
+                        <textarea id="textInput" placeholder="Metni buraya yazın..."></textarea>
+
+                        <div class="editor-controls">
+                            <div class="control-row">
+                                <div class="control-group">
+                                    <label>Font</label>
+                                    <select id="fontFamily">
+                                        <option value="Inter">Inter</option>
+                                        <option value="Arial">Arial</option>
+                                        <option value="Times New Roman">Times New Roman</option>
+                                        <option value="Courier New">Courier New</option>
+                                        <option value="Georgia">Georgia</option>
+                                        <option value="Verdana">Verdana</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label>Boyut</label>
+                                    <input type="number" id="fontSize" value="14" min="8" max="72">
+                                </div>
+                            </div>
+
+                            <div class="control-row">
+                                <div class="control-group">
+                                    <label>Renk</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" id="textColor" value="#000000">
+                                        <span id="colorValue">#000000</span>
+                                        <button id="eyedropperBtn" class="eyedropper-btn" title="Canvas'tan renk al">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path
+                                                    d="M2 22l1-1h3l9-9M20.71 5.63l-2.34-2.34a1 1 0 00-1.41 0l-3.12 3.12-1.93-1.91-1.41 1.41 1.42 1.42L3 16.25V21h4.75l8.92-8.92 1.42 1.42 1.41-1.41-1.92-1.92 3.12-3.12a1 1 0 00.01-1.42z" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="control-group">
+                                    <label>Stil</label>
+                                    <div class="style-toggles unified">
+                                        <label class="style-toggle">
+                                            <input type="checkbox" id="fontBold">
+                                            <span class="toggle-btn" title="Kalın">B</span>
+                                        </label>
+                                        <label class="style-toggle">
+                                            <input type="checkbox" id="fontItalic">
+                                            <span class="toggle-btn italic" title="İtalik">I</span>
+                                        </label>
+                                        <label class="style-toggle">
+                                            <input type="radio" name="textAlign" id="alignLeft" value="left" checked>
+                                            <span class="toggle-btn" title="Sola Hizala">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5">
+                                                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                                                    <line x1="3" y1="12" x2="15" y2="12"></line>
+                                                    <line x1="3" y1="18" x2="18" y2="18"></line>
+                                                </svg>
+                                            </span>
+                                        </label>
+                                        <label class="style-toggle">
+                                            <input type="radio" name="textAlign" id="alignCenter" value="center">
+                                            <span class="toggle-btn" title="Ortala">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5">
+                                                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                                                    <line x1="6" y1="12" x2="18" y2="12"></line>
+                                                    <line x1="4" y1="18" x2="20" y2="18"></line>
+                                                </svg>
+                                            </span>
+                                        </label>
+                                        <label class="style-toggle">
+                                            <input type="radio" name="textAlign" id="alignRight" value="right">
+                                            <span class="toggle-btn" title="Sağa Hizala">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2.5">
+                                                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                                                    <line x1="9" y1="12" x2="21" y2="12"></line>
+                                                    <line x1="6" y1="18" x2="21" y2="18"></line>
+                                                </svg>
+                                            </span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="control-row ai-option">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="useAI" checked>
+                                    <span>AI ile font boyutunu eşleştir</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="editor-actions">
+                            <button class="btn btn-secondary" id="cancelEditBtn">İptal</button>
+                            <button class="btn btn-primary" id="applyTextBtn">Uygula</button>
+                        </div>
                     </div>
                 </div>
 
@@ -173,73 +280,6 @@
                     </div>
                 </div>
             </main>
-        </div>
-    </div>
-
-    <!-- Text Input Modal -->
-    <div id="textModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Metin Düzenle</h3>
-                <button class="close-btn" onclick="closeTextModal()">×</button>
-            </div>
-            <div class="modal-body">
-                <textarea id="textInput" placeholder="Eklemek istediğiniz metni yazın..."></textarea>
-
-                <div class="style-controls">
-                    <div class="control-row">
-                        <div class="control-group">
-                            <label>Font</label>
-                            <select id="fontFamily">
-                                <option value="Inter">Inter</option>
-                                <option value="Arial">Arial</option>
-                                <option value="Times New Roman">Times New Roman</option>
-                                <option value="Courier New">Courier New</option>
-                                <option value="Georgia">Georgia</option>
-                                <option value="Verdana">Verdana</option>
-                            </select>
-                        </div>
-                        <div class="control-group">
-                            <label>Boyut (px)</label>
-                            <input type="number" id="fontSize" value="14" min="8" max="72">
-                        </div>
-                    </div>
-
-                    <div class="control-row">
-                        <div class="control-group">
-                            <label>Renk</label>
-                            <div class="color-picker-wrapper">
-                                <input type="color" id="textColor" value="#000000">
-                                <span id="colorValue">#000000</span>
-                            </div>
-                        </div>
-                        <div class="control-group">
-                            <label>Stil</label>
-                            <div class="style-toggles">
-                                <label class="style-toggle">
-                                    <input type="checkbox" id="fontBold">
-                                    <span class="toggle-btn" title="Kalın">B</span>
-                                </label>
-                                <label class="style-toggle">
-                                    <input type="checkbox" id="fontItalic">
-                                    <span class="toggle-btn italic" title="İtalik">I</span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-options">
-                    <label class="checkbox-label">
-                        <input type="checkbox" id="useAI" checked>
-                        <span>AI ile font boyutunu eşleştir</span>
-                    </label>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeTextModal()">İptal</button>
-                <button class="btn btn-primary" onclick="applyText()">Uygula</button>
-            </div>
         </div>
     </div>
 

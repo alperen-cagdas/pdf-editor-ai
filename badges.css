@@ -20,3 +20,15 @@
     color: #48bb78;
     border: 1px solid rgba(72, 187, 120, 0.3);
 }
+
+.badge.image {
+    background: rgba(118, 75, 162, 0.2);
+    color: #9f7aea;
+    border: 1px solid rgba(118, 75, 162, 0.3);
+}
+
+.badge.removeObject {
+    background: rgba(237, 137, 54, 0.2);
+    color: #ed8936;
+    border: 1px solid rgba(237, 137, 54, 0.3);
+}
