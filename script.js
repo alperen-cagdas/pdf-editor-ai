@@ -836,6 +836,10 @@ function setZoom(newZoom) {
             ann.y *= scaleFactor;
             ann.width *= scaleFactor;
             ann.height *= scaleFactor;
+            // Also scale font size to maintain proportion
+            if (ann.fontSize) {
+                ann.fontSize *= scaleFactor;
+            }
         });
 
         // Scale all image annotations
@@ -917,8 +921,10 @@ function handleMouseDown(e) {
             if (edge) {
                 state.resizingImage = state.selectedImage;
                 state.resizeEdge = edge;
+                // Store original aspect ratio for proportional resizing
+                state.originalAspectRatio = state.selectedImage.width / state.selectedImage.height;
                 annotationCanvas.style.cursor = getResizeCursor(edge);
-                console.log('Starting image resize from edge:', edge);
+                console.log('Starting image resize from edge:', edge, 'aspect ratio:', state.originalAspectRatio);
                 return;
             }
         }
@@ -1048,31 +1054,199 @@ function handleMouseMove(e) {
         const edge = state.resizeEdge;
         const minSize = 20; // Minimum width/height
 
-        // Calculate new dimensions based on which edge is being dragged
-        if (edge.includes('n')) {
-            const newHeight = img.y + img.height - currentY;
-            if (newHeight >= minSize) {
-                img.y = currentY;
-                img.height = newHeight;
+        if (state.croppingImage === img) {
+            // Masking/Framing Crop Mode
+            const originalWidth = img.originalWidth || img.element.naturalWidth;
+            const originalHeight = img.originalHeight || img.element.naturalHeight;
+
+            // Initialize crop values if needed
+            if (img.cropLeft === undefined) img.cropLeft = 0;
+            if (img.cropTop === undefined) img.cropTop = 0;
+            if (img.cropRight === undefined) img.cropRight = 0;
+            if (img.cropBottom === undefined) img.cropBottom = 0;
+
+            // Calculate current scale (screen pixels per image pixel) - CONSTANT DURING CROP
+            const currentVisibleWidth = originalWidth - img.cropLeft - img.cropRight;
+            const currentVisibleHeight = originalHeight - img.cropTop - img.cropBottom;
+
+            // Protect against zero division
+            const scaleX = currentVisibleWidth > 0 ? img.width / currentVisibleWidth : 1;
+            const scaleY = currentVisibleHeight > 0 ? img.height / currentVisibleHeight : 1;
+
+            const minVisibleRaw = 10 / scaleX; // Minimum 10px visible on screen converted to image pixels logic or just screen check
+
+            if (edge.includes('w')) {
+                // Dragging Left Handle: Changes x, width, and cropLeft
+                const deltaX = currentX - img.x;
+                const newWidth = img.width - deltaX;
+
+                if (newWidth >= 20) { // Min screen width
+                    const newVisibleImageWidth = newWidth / scaleX;
+                    const newCropLeft = originalWidth - img.cropRight - newVisibleImageWidth;
+
+                    if (newCropLeft >= 0) {
+                        img.x = currentX;
+                        img.width = newWidth;
+                        img.cropLeft = newCropLeft;
+                    }
+                }
             }
-        }
-        if (edge.includes('s')) {
-            const newHeight = currentY - img.y;
-            if (newHeight >= minSize) {
-                img.height = newHeight;
+            else if (edge.includes('e')) {
+                // Dragging Right Handle: Changes width and cropRight
+                const deltaX = currentX - (img.x + img.width);
+                const newWidth = img.width + deltaX;
+
+                if (newWidth >= 20) {
+                    const newVisibleImageWidth = newWidth / scaleX;
+                    const newCropRight = originalWidth - img.cropLeft - newVisibleImageWidth;
+
+                    if (newCropRight >= 0) {
+                        img.width = newWidth;
+                        img.cropRight = newCropRight;
+                    }
+                }
             }
-        }
-        if (edge.includes('w')) {
-            const newWidth = img.x + img.width - currentX;
-            if (newWidth >= minSize) {
-                img.x = currentX;
-                img.width = newWidth;
+
+            if (edge.includes('n')) {
+                // Dragging Top Handle: Changes y, height, and cropTop
+                const deltaY = currentY - img.y;
+                const newHeight = img.height - deltaY;
+
+                if (newHeight >= 20) {
+                    const newVisibleImageHeight = newHeight / scaleY;
+                    const newCropTop = originalHeight - img.cropBottom - newVisibleImageHeight;
+
+                    if (newCropTop >= 0) {
+                        img.y = currentY;
+                        img.height = newHeight;
+                        img.cropTop = newCropTop;
+                    }
+                }
             }
+            else if (edge.includes('s')) {
+                // Dragging Bottom Handle: Changes height and cropBottom
+                const deltaY = currentY - (img.y + img.height);
+                const newHeight = img.height + deltaY;
+
+                if (newHeight >= 20) {
+                    const newVisibleImageHeight = newHeight / scaleY;
+                    const newCropBottom = originalHeight - img.cropTop - newVisibleImageHeight;
+
+                    if (newCropBottom >= 0) {
+                        img.height = newHeight;
+                        img.cropBottom = newCropBottom;
+                    }
+                }
+            }
+
+            redrawAnnotations();
+            return;
         }
-        if (edge.includes('e')) {
-            const newWidth = currentX - img.x;
-            if (newWidth >= minSize) {
-                img.width = newWidth;
+
+        // Check if it's a corner (diagonal) resize - maintain aspect ratio
+        const isCorner = (edge === 'nw' || edge === 'ne' || edge === 'sw' || edge === 'se');
+
+        if (isCorner && state.originalAspectRatio) {
+            // Maintain aspect ratio for corner resizing
+            const aspectRatio = state.originalAspectRatio;
+
+            if (edge === 'se') {
+                // Bottom-right corner - resize from fixed top-left
+                const deltaX = currentX - img.x;
+                const deltaY = currentY - img.y;
+
+                // Use the larger delta to determine new size
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                }
+            } else if (edge === 'nw') {
+                // Top-left corner - resize from fixed bottom-right
+                const rightX = img.x + img.width;
+                const bottomY = img.y + img.height;
+                const deltaX = rightX - currentX;
+                const deltaY = bottomY - currentY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.x = rightX - newWidth;
+                    img.y = bottomY - img.height;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.x = rightX - img.width;
+                    img.y = bottomY - newHeight;
+                }
+            } else if (edge === 'ne') {
+                // Top-right corner - resize from fixed bottom-left
+                const bottomY = img.y + img.height;
+                const deltaX = currentX - img.x;
+                const deltaY = bottomY - currentY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.y = bottomY - img.height;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.y = bottomY - newHeight;
+                }
+            } else if (edge === 'sw') {
+                // Bottom-left corner - resize from fixed top-right
+                const rightX = img.x + img.width;
+                const deltaX = rightX - currentX;
+                const deltaY = currentY - img.y;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.x = rightX - newWidth;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.x = rightX - img.width;
+                }
+            }
+        } else {
+            // Free resize for edge handles (n, s, e, w)
+            if (edge.includes('n')) {
+                const newHeight = img.y + img.height - currentY;
+                if (newHeight >= minSize) {
+                    img.y = currentY;
+                    img.height = newHeight;
+                }
+            }
+            if (edge.includes('s')) {
+                const newHeight = currentY - img.y;
+                if (newHeight >= minSize) {
+                    img.height = newHeight;
+                }
+            }
+            if (edge.includes('w')) {
+                const newWidth = img.x + img.width - currentX;
+                if (newWidth >= minSize) {
+                    img.x = currentX;
+                    img.width = newWidth;
+                }
+            }
+            if (edge.includes('e')) {
+                const newWidth = currentX - img.x;
+                if (newWidth >= minSize) {
+                    img.width = newWidth;
+                }
             }
         }
 
@@ -1225,6 +1399,7 @@ function handleMouseUp(e) {
         console.log('Image resize complete');
         state.resizingImage = null;
         state.resizeEdge = null;
+        state.originalAspectRatio = null; // Clear aspect ratio
         annotationCanvas.style.cursor = 'default';
         redrawAnnotations();
         updateAnnotationsList();
@@ -1257,19 +1432,41 @@ function handleMouseUp(e) {
 
         // Only add if area is significant
         if (state.currentAnnotation.width > 20 && state.currentAnnotation.height > 20) {
+            // Calculate fitting dimensions while maintaining aspect ratio
+            const imgAspect = state.pendingImage.width / state.pendingImage.height;
+            const boxAspect = state.currentAnnotation.width / state.currentAnnotation.height;
+
+            let finalWidth, finalHeight, finalX, finalY;
+
+            if (imgAspect > boxAspect) {
+                // Image is wider - fit to width
+                finalWidth = state.currentAnnotation.width;
+                finalHeight = state.currentAnnotation.width / imgAspect;
+                finalX = state.currentAnnotation.x;
+                finalY = state.currentAnnotation.y + (state.currentAnnotation.height - finalHeight) / 2;
+            } else {
+                // Image is taller - fit to height
+                finalHeight = state.currentAnnotation.height;
+                finalWidth = state.currentAnnotation.height * imgAspect;
+                finalX = state.currentAnnotation.x + (state.currentAnnotation.width - finalWidth) / 2;
+                finalY = state.currentAnnotation.y;
+            }
+
             const imageAnnotation = {
                 type: 'image',
                 page: state.currentPage,
-                x: state.currentAnnotation.x,
-                y: state.currentAnnotation.y,
-                width: state.currentAnnotation.width,
-                height: state.currentAnnotation.height,
+                x: finalX,
+                y: finalY,
+                width: finalWidth,
+                height: finalHeight,
+                originalWidth: state.pendingImage.width,
+                originalHeight: state.pendingImage.height,
                 src: state.pendingImage.src,
                 element: state.pendingImage.element
             };
 
             state.imageAnnotations.push(imageAnnotation);
-            console.log('Image placed:', imageAnnotation);
+            console.log('Image placed with aspect ratio preserved:', imageAnnotation);
 
             // Clear pending image and switch back to move tool
             state.pendingImage = null;
@@ -1553,12 +1750,27 @@ function redrawAnnotations() {
     state.imageAnnotations
         .filter(img => img.page === state.currentPage)
         .forEach(img => {
-            // Draw the image
-            annotationCtx.drawImage(img.element, img.x, img.y, img.width, img.height);
+            // Calculate source rectangle (for cropping)
+            const srcX = img.cropLeft || 0;
+            const srcY = img.cropTop || 0;
+            const srcWidth = (img.originalWidth || img.element.naturalWidth) - (img.cropLeft || 0) - (img.cropRight || 0);
+            const srcHeight = (img.originalHeight || img.element.naturalHeight) - (img.cropTop || 0) - (img.cropBottom || 0);
 
-            // Draw green border around image
-            annotationCtx.strokeStyle = '#48bb78';
-            annotationCtx.lineWidth = 2;
+            // Draw the image with crop applied
+            annotationCtx.drawImage(
+                img.element,
+                srcX, srcY, srcWidth, srcHeight,  // Source rectangle
+                img.x, img.y, img.width, img.height  // Destination rectangle
+            );
+
+            // Draw border - orange for crop mode, green otherwise
+            if (state.croppingImage === img) {
+                annotationCtx.strokeStyle = '#f6993f'; // Orange for crop mode
+                annotationCtx.lineWidth = 3;
+            } else {
+                annotationCtx.strokeStyle = '#48bb78'; // Green
+                annotationCtx.lineWidth = 2;
+            }
             annotationCtx.setLineDash([]);
             annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
         });
@@ -2001,6 +2213,18 @@ function updateAnnotationsList() {
         html += '<div class="annotation-meta">Sayfa ' + img.page + ' • ' + Math.round(img.width) + 'x' + Math.round(img.height) + 'px</div>';
         html += '</div>';
         html += '<div class="annotation-actions">';
+        // Crop button
+        const isCropping = state.croppingImage === img;
+        const cropBtnClass = isCropping ? 'edit-btn active' : 'edit-btn';
+        const cropTitle = isCropping ? 'Kırpmayı Tamamla' : 'Kırp';
+
+        html += `<button class="${cropBtnClass}" onclick="event.stopPropagation(); window.startCropImage(${index})" title="${cropTitle}">`;
+        html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">';
+        html += '<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>';
+        html += '<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>';
+        html += '</svg>';
+        html += '</button>';
+        // Delete button
         html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDeleteImage(' + index + ')" title="Sil">';
         html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
         html += '</button>';
@@ -2037,6 +2261,40 @@ function goToImageAnnotation(index) {
     }
 }
 window.goToImageAnnotation = goToImageAnnotation;
+
+// Start crop mode for image
+function startCropImage(index) {
+    const img = state.imageAnnotations[index];
+    if (!img) return;
+
+    // Navigate to image page if needed
+    if (img.page !== state.currentPage) {
+        goToPage(img.page);
+    }
+
+    // Toggle crop mode
+    if (state.croppingImage === img) {
+        // Exit crop mode
+        state.croppingImage = null;
+        // alert('Kırpma modu kapatıldı.'); // Removed alert for smoother UX
+    } else {
+        // Enter crop mode - select image and enable crop
+        state.croppingImage = img;
+        state.selectedImage = img;
+
+        // Initialize crop region if not set
+        if (img.cropLeft === undefined) img.cropLeft = 0;
+        if (img.cropTop === undefined) img.cropTop = 0;
+        if (img.cropRight === undefined) img.cropRight = 0;
+        if (img.cropBottom === undefined) img.cropBottom = 0;
+
+        // alert('...'); // Removed alert
+    }
+
+    updateAnnotationsList();
+    redrawAnnotations();
+}
+window.startCropImage = startCropImage;
 
 function editAnnotation(index) {
     state.editingIndex = index;
@@ -2364,10 +2622,40 @@ downloadBtn.addEventListener('click', async () => {
             try {
                 // Convert Image element to base64
                 const canvas = document.createElement('canvas');
-                canvas.width = img.element.naturalWidth || img.element.width;
-                canvas.height = img.element.naturalHeight || img.element.height;
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(img.element, 0, 0);
+
+                // Check for crop properties
+                const hasCrop = (img.cropLeft || img.cropTop || img.cropRight || img.cropBottom);
+
+                if (hasCrop) {
+                    // CROP MODE: Draw only the visible part
+                    const originalWidth = img.originalWidth || img.element.naturalWidth;
+                    const originalHeight = img.originalHeight || img.element.naturalHeight;
+
+                    // Source rectangle (the part of the original image to keep)
+                    const srcX = img.cropLeft || 0;
+                    const srcY = img.cropTop || 0;
+                    const srcWidth = originalWidth - (img.cropLeft || 0) - (img.cropRight || 0);
+                    const srcHeight = originalHeight - (img.cropTop || 0) - (img.cropBottom || 0);
+
+                    // Set canvas to the aspect ratio of the VISIBLE part
+                    canvas.width = srcWidth;
+                    canvas.height = srcHeight;
+
+                    // Draw cropped portion
+                    ctx.drawImage(
+                        img.element,
+                        srcX, srcY, srcWidth, srcHeight,
+                        0, 0, srcWidth, srcHeight
+                    );
+
+                    console.log(`Exporting cropped image: src=${srcX},${srcY} ${srcWidth}x${srcHeight}`);
+                } else {
+                    // NORMAL MODE: Draw full image
+                    canvas.width = img.element.naturalWidth || img.element.width;
+                    canvas.height = img.element.naturalHeight || img.element.height;
+                    ctx.drawImage(img.element, 0, 0);
+                }
 
                 // Get image data as data URL
                 const dataUrl = canvas.toDataURL('image/png');
@@ -2474,3 +2762,12 @@ window.applyText = applyText;
 
 // Initialize application
 initTabs();
+// Double click to confirm crop
+annotationCanvas.addEventListener('dblclick', function (e) {
+    if (state.croppingImage) {
+        state.croppingImage = null;
+        updateAnnotationsList();
+        redrawAnnotations();
+        console.log('Crop confirmed via double click');
+    }
+});

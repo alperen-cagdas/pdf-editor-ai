@@ -231,6 +231,12 @@ body {
     transform: scale(1.1);
 }
 
+.edit-btn.active {
+    color: var(--warning);
+    background: var(--bg-hover);
+    transform: scale(1.1);
+}
+
 .empty-state {
     text-align: center;
     color: var(--text-secondary);

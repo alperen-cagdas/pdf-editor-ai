@@ -11,11 +11,12 @@ Tüm önemli değişiklikler bu dosyada belgelenir.
   - "+" butonu ile yeni sekme oluşturma
   - Sekme kapatma özelliği
 
-- 🖼️ **Görsel Manipülasyonu** - Eklenen görselleri düzenleme
-  - Çift tıkla seçim
-  - Sürükle-bırak ile taşıma
-  - Köşe/kenarlardan yeniden boyutlandırma
-  - Resize handle'ları
+- 🖼️ **Görsel Manipülasyonu** - Eklenen görselleri düzenleme ve kırpma
+  - ✨ **Gelişmiş Kırpma (Crop)**: Maskeleme yöntemi ile görüntü bozulmadan kırpma
+  - Kırpma aracı: İkon ile aktif etme, çift tıklama ile onaylama
+  - 📄 PDF Çıktısı: Kırpılan görseller PDF'te birebir aynı görünür (WYSWYG)
+  - Köşe tutamaçlarından orantılı yeniden boyutlandırma (Aspect Ratio Lock)
+  - Çift tıkla seçim ve sürükle-bırak
 
 - 📐 **Metin Dikey Ortalama** - Yazılar kutunun tam ortasında
   - Font boyutu değişince otomatik ortalama
