@@ -70,6 +70,14 @@ Tüm önemli değişiklikler bu dosyada belgelenir.
 
 ---
 
+## [1.1.0] - 2025-12-10
+
+### Eklenenler
+- 🖼️ Görsel ekleme ve yerleştirme özelliği
+- ✨ Görsel önizleme
+- 📋 Görsel annotation listesi ve yönetimi
+- 🗑️ Eklenen görselleri silme desteği
+
 ## [1.0.0] - 2025-12-08
 
 ### İlk Sürüm
