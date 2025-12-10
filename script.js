@@ -1,30 +1,66 @@
 // PDF.js Configuration - Local worker for Electron
 pdfjsLib.GlobalWorkerOptions.workerSrc = 'libs/pdf.worker.min.js';
 
-// State Management
-const state = {
-    pdfDoc: null,
-    currentPage: 1,
-    totalPages: 0,
-    zoom: 1.0,
-    activeTool: 'replace',
-    annotations: [],
-    imageAnnotations: [], // For image overlays
-    currentAnnotation: null,
-    isDrawing: false,
-    draggedAnnotation: null,
-    dragOffsetX: 0,
-    dragOffsetY: 0,
-    startX: 0,
-    startY: 0,
-    editingIndex: null,
-    apiKey: '', // User must enter their own key
-    originalFile: null,
-    pendingImage: null, // For image being placed
-    // Resize state
-    resizingAnnotation: null,
-    resizeEdge: null, // 'left', 'right', 'top', 'bottom', or corner combinations
-    selectedAnnotation: null // For showing resize handles
+// State Management - Multi-Workspace System
+const workspaces = [];
+let activeWorkspaceId = null;
+let workspaceCounter = 0;
+
+// Create a new workspace state
+function createWorkspaceState() {
+    return {
+        id: ++workspaceCounter,
+        name: `Yeni Belge ${workspaceCounter}`,
+        pdfDoc: null,
+        currentPage: 1,
+        totalPages: 0,
+        zoom: 1.0,
+        activeTool: 'replace',
+        annotations: [],
+        imageAnnotations: [],
+        currentAnnotation: null,
+        isDrawing: false,
+        draggedAnnotation: null,
+        draggedImage: null,
+        dragOffsetX: 0,
+        dragOffsetY: 0,
+        startX: 0,
+        startY: 0,
+        editingIndex: null,
+        originalFile: null,
+        pendingImage: null,
+        resizingAnnotation: null,
+        resizingImage: null,
+        resizeEdge: null,
+        selectedAnnotation: null,
+        selectedImage: null,
+        currentViewport: { width: 1, height: 1 }
+    };
+}
+
+// Current active workspace state accessor
+function getState() {
+    if (!activeWorkspaceId) return null;
+    return workspaces.find(w => w.id === activeWorkspaceId);
+}
+
+// Legacy state object - points to active workspace for backward compatibility
+const state = new Proxy({}, {
+    get: (target, prop) => {
+        const ws = getState();
+        if (ws) return ws[prop];
+        return undefined;
+    },
+    set: (target, prop, value) => {
+        const ws = getState();
+        if (ws) ws[prop] = value;
+        return true;
+    }
+});
+
+// Shared state (not per-workspace)
+const sharedState = {
+    apiKey: 'AIzaSyAwYD2lK1m0sMh6v7n4P2dPuqUrHMql1x0' // Default API key for font matching
 };
 
 // DOM Elements
@@ -40,7 +76,8 @@ const zoomOutBtn = document.getElementById('zoomOut');
 const zoomLevel = document.getElementById('zoomLevel');
 const prevPageBtn = document.getElementById('prevPage');
 const nextPageBtn = document.getElementById('nextPage');
-const pageInfo = document.getElementById('pageInfo');
+const currentPageDisplay = document.getElementById('currentPage');
+const totalPagesDisplay = document.getElementById('totalPages');
 const moveTool = document.getElementById('moveTool');
 const replaceTool = document.getElementById('replaceTool');
 const addTool = document.getElementById('addTool');
@@ -59,12 +96,132 @@ const fontItalicCheckbox = document.getElementById('fontItalic');
 const alignLeftRadio = document.getElementById('alignLeft');
 const alignCenterRadio = document.getElementById('alignCenter');
 const alignRightRadio = document.getElementById('alignRight');
+const pixelateTextCheckbox = document.getElementById('pixelateText');
 const eyedropperBtn = document.getElementById('eyedropperBtn');
 const applyTextBtn = document.getElementById('applyTextBtn');
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 const apiKeyInput = document.getElementById('apiKey');
 const annotationsList = document.getElementById('annotationsList');
 const downloadBtn = document.getElementById('downloadBtn');
+// Tab Bar Elements
+const tabsContainer = document.getElementById('tabsContainer');
+
+// ============================
+// Tab Management Functions
+// ============================
+
+function createTab(name = null) {
+    const ws = createWorkspaceState();
+    if (name) ws.name = name;
+    workspaces.push(ws);
+    switchToTab(ws.id);
+    renderTabs();
+    return ws;
+}
+
+function switchToTab(workspaceId) {
+    // Save current state before switching (already handled by proxy)
+    activeWorkspaceId = workspaceId;
+
+    const ws = getState();
+    if (!ws) return;
+
+    // Update UI to reflect workspace state
+    if (ws.pdfDoc) {
+        dropZone.style.display = 'none';
+        canvasContainer.style.display = 'flex';
+        renderPage(ws.currentPage);
+        updatePageControls();
+    } else {
+        dropZone.style.display = 'flex';
+        canvasContainer.style.display = 'none';
+    }
+
+    // Update tool highlighting
+    setActiveTool(ws.activeTool);
+
+    // Update zoom display
+    zoomLevel.textContent = Math.round(ws.zoom * 100) + '%';
+
+    // Update annotations list
+    updateAnnotationsList();
+
+    // Close text panel
+    if (textEditorPanel) textEditorPanel.style.display = 'none';
+
+    renderTabs();
+}
+
+function closeTab(workspaceId) {
+    const index = workspaces.findIndex(w => w.id === workspaceId);
+    if (index === -1) return;
+
+    // Don't close if it's the only tab
+    if (workspaces.length === 1) {
+        // Reset to empty state instead
+        const ws = workspaces[0];
+        ws.pdfDoc = null;
+        ws.annotations = [];
+        ws.imageAnnotations = [];
+        ws.name = 'Yeni Belge';
+        dropZone.style.display = 'flex';
+        canvasContainer.style.display = 'none';
+        renderTabs();
+        return;
+    }
+
+    workspaces.splice(index, 1);
+
+    // Switch to another tab if we closed the active one
+    if (activeWorkspaceId === workspaceId) {
+        const newActive = workspaces[Math.min(index, workspaces.length - 1)];
+        switchToTab(newActive.id);
+    } else {
+        renderTabs();
+    }
+}
+
+function renderTabs() {
+    tabsContainer.innerHTML = '';
+
+    workspaces.forEach(ws => {
+        const tab = document.createElement('div');
+        tab.className = 'tab-item' + (ws.id === activeWorkspaceId ? ' active' : '');
+        tab.innerHTML = `
+            <span class="tab-title" title="${ws.name}">${ws.name}</span>
+            <button class="tab-close" title="Sekmeyi Kapat">×</button>
+        `;
+
+        tab.querySelector('.tab-title').addEventListener('click', () => {
+            switchToTab(ws.id);
+        });
+
+        tab.querySelector('.tab-close').addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeTab(ws.id);
+        });
+
+        tabsContainer.appendChild(tab);
+    });
+
+    // Add the + button right after the last tab
+    const addBtn = document.createElement('button');
+    addBtn.className = 'tab-add-btn';
+    addBtn.title = 'Yeni Sekme';
+    addBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+    `;
+    addBtn.addEventListener('click', () => createTab());
+    tabsContainer.appendChild(addBtn);
+}
+
+// Initialize first tab
+function initTabs() {
+    createTab('Yeni Belge');
+}
 
 // Event Listeners
 fileInput.addEventListener('change', handleFileSelect);
@@ -185,6 +342,30 @@ alignLeftRadio.addEventListener('change', updateLivePreview);
 alignCenterRadio.addEventListener('change', updateLivePreview);
 alignRightRadio.addEventListener('change', updateLivePreview);
 
+// Pixelate level cycling (0=off, 1=light, 2=medium, 3=heavy)
+let currentPixelateLevel = 0;
+const pixelateLevels = [
+    { scale: 1, label: 'Kapalı' },      // 0 - No pixelation
+    { scale: 0.75, label: 'Hafif' },    // 1 - Light (75%)
+    { scale: 0.5, label: 'Orta' },      // 2 - Medium (50%)
+    { scale: 0.25, label: 'Yoğun' }     // 3 - Heavy (25%)
+];
+
+pixelateTextCheckbox.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentPixelateLevel = (currentPixelateLevel + 1) % 4;
+    pixelateTextCheckbox.checked = currentPixelateLevel > 0;
+
+    // Update button visual feedback
+    const toggleBtn = pixelateTextCheckbox.parentElement.querySelector('.toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.title = `Piksellendir: ${pixelateLevels[currentPixelateLevel].label}`;
+        toggleBtn.setAttribute('data-level', currentPixelateLevel);
+    }
+
+    updateLivePreview();
+});
+
 // Live preview function - updates annotation on canvas in real-time
 function updateLivePreview() {
     if (!state.currentAnnotation) return;
@@ -197,6 +378,7 @@ function updateLivePreview() {
     state.currentAnnotation.bold = fontBoldCheckbox.checked;
     state.currentAnnotation.italic = fontItalicCheckbox.checked;
     state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
+    state.currentAnnotation.pixelateLevel = currentPixelateLevel;
 
     // Redraw to show live preview
     redrawAnnotations();
@@ -224,42 +406,85 @@ function drawAnnotationPreview(ann) {
 
     // Draw text
     if (ann.text) {
-        annotationCtx.fillStyle = ann.color || '#000000';
+        const fontSize = ann.fontSize || 14;
+        const lineHeight = fontSize * 1.4;
         const weight = ann.bold ? 'bold ' : '';
         const style = ann.italic ? 'italic ' : '';
         const family = ann.fontFamily || 'Inter';
-        annotationCtx.font = `${style}${weight}${ann.fontSize || 14}px "${family}"`;
-
         const textAlign = ann.textAlign || 'left';
-        annotationCtx.textAlign = textAlign;
-
         const padding = 5;
+
+        // Calculate text position
         let textX;
         if (textAlign === 'center') {
-            textX = ann.x + ann.width / 2;
+            textX = ann.width / 2;
         } else if (textAlign === 'right') {
-            textX = ann.x + ann.width - padding;
+            textX = ann.width - padding;
         } else {
-            textX = ann.x + padding;
+            textX = padding;
         }
 
+        // Calculate lines for word wrap
+        annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
         const words = ann.text.split(' ');
-        let line = '';
-        let y = ann.y + 20;
+        let lines = [];
+        let currentLine = '';
 
         words.forEach(word => {
-            const testLine = line + word + ' ';
+            const testLine = currentLine + word + ' ';
             const metrics = annotationCtx.measureText(testLine);
 
-            if (metrics.width > ann.width - 10 && line !== '') {
-                annotationCtx.fillText(line.trim(), textX, y);
-                line = word + ' ';
-                y += 20;
+            if (metrics.width > ann.width - 10 && currentLine !== '') {
+                lines.push(currentLine.trim());
+                currentLine = word + ' ';
             } else {
-                line = testLine;
+                currentLine = testLine;
             }
         });
-        annotationCtx.fillText(line.trim(), textX, y);
+        lines.push(currentLine.trim());
+
+        // Calculate vertical centering
+        const totalTextHeight = lines.length * lineHeight;
+        const startY = (ann.height - totalTextHeight) / 2 + fontSize;
+
+        if (ann.pixelateLevel && ann.pixelateLevel > 0) {
+            // Pixelated text rendering - draw at low resolution then scale up
+            const scale = pixelateLevels[ann.pixelateLevel].scale;
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = Math.ceil(ann.width * scale);
+            tempCanvas.height = Math.ceil(ann.height * scale);
+            const tempCtx = tempCanvas.getContext('2d');
+
+            // Disable smoothing for crisp pixels
+            tempCtx.imageSmoothingEnabled = false;
+
+            // Scale down context
+            tempCtx.scale(scale, scale);
+
+            // Draw text at lower resolution
+            tempCtx.fillStyle = ann.color || '#000000';
+            tempCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+            tempCtx.textAlign = textAlign;
+
+            lines.forEach((line, index) => {
+                tempCtx.fillText(line, textX, startY + index * lineHeight);
+            });
+
+            // Draw scaled-up pixelated result
+            annotationCtx.imageSmoothingEnabled = false;
+            annotationCtx.drawImage(tempCanvas, ann.x, ann.y, ann.width, ann.height);
+            annotationCtx.imageSmoothingEnabled = true;
+        } else {
+            // Normal text rendering
+            annotationCtx.fillStyle = ann.color || '#000000';
+            annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+            annotationCtx.textAlign = textAlign;
+
+            lines.forEach((line, index) => {
+                annotationCtx.fillText(line, ann.x + textX, ann.y + startY + index * lineHeight);
+            });
+        }
+
         annotationCtx.textAlign = 'left';
     }
 }
@@ -313,7 +538,7 @@ function handleDoubleClick(e) {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Find clicked annotation
+    // Find clicked text annotation
     const clickedAnnotation = state.annotations
         .filter(ann => ann.page === state.currentPage)
         .slice().reverse()
@@ -322,18 +547,38 @@ function handleDoubleClick(e) {
             y >= ann.y && y <= ann.y + ann.height
         );
 
-    if (clickedAnnotation) {
+    // Find clicked image annotation
+    const clickedImage = state.imageAnnotations
+        .filter(img => img.page === state.currentPage)
+        .slice().reverse()
+        .find(img =>
+            x >= img.x && x <= img.x + img.width &&
+            y >= img.y && y <= img.y + img.height
+        );
+
+    // Prefer image if both overlap (images are on top)
+    const selectedItem = clickedImage || clickedAnnotation;
+
+    if (selectedItem) {
         // Toggle selection
-        if (state.selectedAnnotation === clickedAnnotation) {
+        if (state.selectedAnnotation === selectedItem) {
             state.selectedAnnotation = null;
+            state.selectedImage = null;
         } else {
-            state.selectedAnnotation = clickedAnnotation;
+            if (clickedImage) {
+                state.selectedImage = clickedImage;
+                state.selectedAnnotation = null;
+            } else {
+                state.selectedAnnotation = clickedAnnotation;
+                state.selectedImage = null;
+            }
         }
         redrawAnnotations();
-        console.log('Annotation selected for resize:', state.selectedAnnotation ? 'yes' : 'no');
+        console.log('Selected for resize:', state.selectedAnnotation ? 'annotation' : (state.selectedImage ? 'image' : 'none'));
     } else {
         // Clicked outside - deselect
         state.selectedAnnotation = null;
+        state.selectedImage = null;
         redrawAnnotations();
     }
 }
@@ -343,13 +588,13 @@ textColorInput.addEventListener('input', (e) => {
 });
 
 apiKeyInput.addEventListener('change', (e) => {
-    state.apiKey = e.target.value;
+    sharedState.apiKey = e.target.value;
     localStorage.setItem('pdfEditorApiKey', e.target.value);
     updateApiStatus();
 });
 
 apiKeyInput.addEventListener('input', (e) => {
-    state.apiKey = e.target.value;
+    sharedState.apiKey = e.target.value;
     updateApiStatus();
 });
 
@@ -388,7 +633,7 @@ function updateApiStatus(status = null, message = null) {
         text.textContent = message;
     } else {
         // Auto-detect based on API key presence
-        if (state.apiKey && state.apiKey.length > 10) {
+        if (sharedState.apiKey && sharedState.apiKey.length > 10) {
             dot.className = 'status-dot inactive';
             text.textContent = 'API anahtarı girildi (test edilmedi)';
         } else {
@@ -399,7 +644,7 @@ function updateApiStatus(status = null, message = null) {
 }
 
 testApiBtn.addEventListener('click', async () => {
-    if (!state.apiKey || state.apiKey.length < 10) {
+    if (!sharedState.apiKey || sharedState.apiKey.length < 10) {
         updateApiStatus('error', 'Lütfen önce bir API anahtarı girin');
         return;
     }
@@ -408,7 +653,7 @@ testApiBtn.addEventListener('click', async () => {
 
     try {
         // Use gemini-2.0-flash model
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${sharedState.apiKey}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -424,7 +669,7 @@ testApiBtn.addEventListener('click', async () => {
             const data = await response.json();
             if (data.candidates && data.candidates.length > 0) {
                 updateApiStatus('active', 'API aktif ve çalışıyor ✓');
-                localStorage.setItem('pdfEditorApiKey', state.apiKey);
+                localStorage.setItem('pdfEditorApiKey', sharedState.apiKey);
                 console.log('API Test successful:', data.candidates[0].content.parts[0].text);
             } else {
                 updateApiStatus('error', 'API yanıt verdi ama boş');
@@ -450,15 +695,18 @@ testApiBtn.addEventListener('click', async () => {
     }
 });
 
-// Load saved API key
+// Load saved API key or use default
 const savedApiKey = localStorage.getItem('pdfEditorApiKey');
 if (savedApiKey) {
     apiKeyInput.value = savedApiKey;
-    state.apiKey = savedApiKey;
-    updateApiStatus();
+    sharedState.apiKey = savedApiKey;
+} else {
+    // Use default API key
+    apiKeyInput.value = sharedState.apiKey;
 }
+updateApiStatus();
 
-console.log('PDF Editor Ready. API Key status:', state.apiKey ? 'Set' : 'Missing');
+console.log('PDF Editor Ready. API Key status:', sharedState.apiKey ? 'Set' : 'Missing');
 
 
 
@@ -498,6 +746,13 @@ async function handleFile(file) {
 
     // Store the original file for later download
     state.originalFile = file;
+
+    // Update tab name with file name
+    const ws = getState();
+    if (ws) {
+        ws.name = file.name.replace('.pdf', '').substring(0, 25);
+        renderTabs();
+    }
 
     try {
         const arrayBuffer = await file.arrayBuffer();
@@ -541,6 +796,9 @@ async function renderPage(pageNum) {
         const page = await state.pdfDoc.getPage(pageNum);
         const viewport = page.getViewport({ scale: state.zoom * 1.5 });
 
+        // Store current viewport dimensions
+        state.currentViewport = { width: viewport.width, height: viewport.height };
+
         // Setup canvases
         pdfCanvas.width = viewport.width;
         pdfCanvas.height = viewport.height;
@@ -565,8 +823,33 @@ async function renderPage(pageNum) {
 // Zoom Control
 function setZoom(newZoom) {
     if (newZoom >= 0.5 && newZoom <= 3.0) {
+        const oldZoom = state.zoom;
         state.zoom = newZoom;
         zoomLevel.textContent = Math.round(newZoom * 100) + '%';
+
+        // Calculate scale factor for coordinate conversion
+        const scaleFactor = newZoom / oldZoom;
+
+        // Scale all text annotations (all pages, as they share coordinate system)
+        state.annotations.forEach(ann => {
+            ann.x *= scaleFactor;
+            ann.y *= scaleFactor;
+            ann.width *= scaleFactor;
+            ann.height *= scaleFactor;
+        });
+
+        // Scale all image annotations
+        state.imageAnnotations.forEach(img => {
+            img.x *= scaleFactor;
+            img.y *= scaleFactor;
+            img.width *= scaleFactor;
+            img.height *= scaleFactor;
+        });
+
+        // Clear selection to avoid stale references
+        state.selectedAnnotation = null;
+        state.selectedImage = null;
+
         renderPage(state.currentPage);
     }
 }
@@ -581,7 +864,8 @@ function goToPage(pageNum) {
 }
 
 function updatePageControls() {
-    pageInfo.textContent = `Sayfa ${state.currentPage} / ${state.totalPages}`;
+    currentPageDisplay.textContent = state.currentPage;
+    totalPagesDisplay.textContent = state.totalPages;
     prevPageBtn.disabled = state.currentPage === 1;
     nextPageBtn.disabled = state.currentPage === state.totalPages;
 }
@@ -627,7 +911,38 @@ function handleMouseDown(e) {
             }
         }
 
-        // Check if clicked on an existing annotation
+        // Check if starting to resize selected image
+        if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+            const edge = getResizeEdge(state.startX, state.startY, state.selectedImage);
+            if (edge) {
+                state.resizingImage = state.selectedImage;
+                state.resizeEdge = edge;
+                annotationCanvas.style.cursor = getResizeCursor(edge);
+                console.log('Starting image resize from edge:', edge);
+                return;
+            }
+        }
+
+        // Check if clicked on an image annotation (check images first - they're on top)
+        const clickedImage = state.imageAnnotations
+            .filter(img => img.page === state.currentPage)
+            .slice().reverse()
+            .find(img =>
+                state.startX >= img.x &&
+                state.startX <= img.x + img.width &&
+                state.startY >= img.y &&
+                state.startY <= img.y + img.height
+            );
+
+        if (clickedImage) {
+            state.draggedImage = clickedImage;
+            state.dragOffsetX = state.startX - clickedImage.x;
+            state.dragOffsetY = state.startY - clickedImage.y;
+            annotationCanvas.style.cursor = 'grabbing';
+            return;
+        }
+
+        // Check if clicked on an existing text annotation
         const clickedAnnotation = state.annotations
             .filter(ann => ann.page === state.currentPage)
             .slice().reverse() // Check top-most first
@@ -727,7 +1042,45 @@ function handleMouseMove(e) {
         return;
     }
 
-    // Handle Dragging
+    // Handle Image Resizing
+    if (state.resizingImage) {
+        const img = state.resizingImage;
+        const edge = state.resizeEdge;
+        const minSize = 20; // Minimum width/height
+
+        // Calculate new dimensions based on which edge is being dragged
+        if (edge.includes('n')) {
+            const newHeight = img.y + img.height - currentY;
+            if (newHeight >= minSize) {
+                img.y = currentY;
+                img.height = newHeight;
+            }
+        }
+        if (edge.includes('s')) {
+            const newHeight = currentY - img.y;
+            if (newHeight >= minSize) {
+                img.height = newHeight;
+            }
+        }
+        if (edge.includes('w')) {
+            const newWidth = img.x + img.width - currentX;
+            if (newWidth >= minSize) {
+                img.x = currentX;
+                img.width = newWidth;
+            }
+        }
+        if (edge.includes('e')) {
+            const newWidth = currentX - img.x;
+            if (newWidth >= minSize) {
+                img.width = newWidth;
+            }
+        }
+
+        redrawAnnotations();
+        return;
+    }
+
+    // Handle Dragging (text annotations)
     if (state.draggedAnnotation) {
         state.draggedAnnotation.x = currentX - state.dragOffsetX;
         state.draggedAnnotation.y = currentY - state.dragOffsetY;
@@ -735,8 +1088,16 @@ function handleMouseMove(e) {
         return;
     }
 
-    // Hover effect for move tool - show resize cursors when hovering edges of selected annotation
-    if (state.activeTool === 'move' && !state.draggedAnnotation && !state.resizingAnnotation) {
+    // Handle Image Dragging
+    if (state.draggedImage) {
+        state.draggedImage.x = currentX - state.dragOffsetX;
+        state.draggedImage.y = currentY - state.dragOffsetY;
+        redrawAnnotations();
+        return;
+    }
+
+    // Hover effect for move tool - show resize cursors when hovering edges of selected annotation/image
+    if (state.activeTool === 'move' && !state.draggedAnnotation && !state.draggedImage && !state.resizingAnnotation && !state.resizingImage) {
         // Check resize cursor for selected annotation
         if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
             const edge = getResizeEdge(currentX, currentY, state.selectedAnnotation);
@@ -746,15 +1107,34 @@ function handleMouseMove(e) {
             }
         }
 
-        // Check for regular hover on any annotation
-        const hovering = state.annotations.some(ann =>
+        // Check resize cursor for selected image
+        if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+            const edge = getResizeEdge(currentX, currentY, state.selectedImage);
+            if (edge) {
+                annotationCanvas.style.cursor = getResizeCursor(edge);
+                return;
+            }
+        }
+
+        // Check for hover on any image
+        const hoveringImage = state.imageAnnotations.some(img =>
+            img.page === state.currentPage &&
+            currentX >= img.x &&
+            currentX <= img.x + img.width &&
+            currentY >= img.y &&
+            currentY <= img.y + img.height
+        );
+
+        // Check for regular hover on any text annotation
+        const hoveringAnnotation = state.annotations.some(ann =>
             ann.page === state.currentPage &&
             currentX >= ann.x &&
             currentX <= ann.x + ann.width &&
             currentY >= ann.y &&
             currentY <= ann.y + ann.height
         );
-        annotationCanvas.style.cursor = hovering ? 'grab' : 'default';
+
+        annotationCanvas.style.cursor = (hoveringImage || hoveringAnnotation) ? 'grab' : 'default';
         return;
     }
 
@@ -840,8 +1220,25 @@ function handleMouseUp(e) {
         return;
     }
 
+    // Handle image resize end
+    if (state.resizingImage) {
+        console.log('Image resize complete');
+        state.resizingImage = null;
+        state.resizeEdge = null;
+        annotationCanvas.style.cursor = 'default';
+        redrawAnnotations();
+        updateAnnotationsList();
+        return;
+    }
+
     if (state.draggedAnnotation) {
         state.draggedAnnotation = null;
+        annotationCanvas.style.cursor = 'grab';
+        return;
+    }
+
+    if (state.draggedImage) {
+        state.draggedImage = null;
         annotationCanvas.style.cursor = 'grab';
         return;
     }
@@ -1063,45 +1460,89 @@ function redrawAnnotations() {
 
             // Draw text if exists
             if (ann.text) {
-                annotationCtx.fillStyle = ann.color || '#000000';
                 const weight = ann.bold ? 'bold ' : '';
                 const style = ann.italic ? 'italic ' : '';
                 const family = ann.fontFamily || 'Inter';
-                annotationCtx.font = `${style}${weight}${ann.fontSize || 14}px "${family}"`;
-
-                // Set text alignment
+                const fontSize = ann.fontSize || 14;
+                const lineHeight = fontSize * 1.4;
                 const textAlign = ann.textAlign || 'left';
-                annotationCtx.textAlign = textAlign;
-
-                // Word wrap text
-                const words = ann.text.split(' ');
-                let line = '';
-                let y = ann.y + 20;
                 const padding = 5;
 
-                // Calculate x position based on alignment
-                let textX;
+                annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+
+                // Calculate x position based on alignment (for pixelate we use relative position)
+                let textXRel; // Relative to annotation
+                let textXAbs; // Absolute position
                 if (textAlign === 'center') {
-                    textX = ann.x + ann.width / 2;
+                    textXRel = ann.width / 2;
+                    textXAbs = ann.x + ann.width / 2;
                 } else if (textAlign === 'right') {
-                    textX = ann.x + ann.width - padding;
+                    textXRel = ann.width - padding;
+                    textXAbs = ann.x + ann.width - padding;
                 } else {
-                    textX = ann.x + padding;
+                    textXRel = padding;
+                    textXAbs = ann.x + padding;
                 }
 
+                // First pass: calculate number of lines for vertical centering
+                const words = ann.text.split(' ');
+                let lines = [];
+                let currentLine = '';
+
                 words.forEach(word => {
-                    const testLine = line + word + ' ';
+                    const testLine = currentLine + word + ' ';
                     const metrics = annotationCtx.measureText(testLine);
 
-                    if (metrics.width > ann.width - 10 && line !== '') {
-                        annotationCtx.fillText(line.trim(), textX, y);
-                        line = word + ' ';
-                        y += 20;
+                    if (metrics.width > ann.width - 10 && currentLine !== '') {
+                        lines.push(currentLine.trim());
+                        currentLine = word + ' ';
                     } else {
-                        line = testLine;
+                        currentLine = testLine;
                     }
                 });
-                annotationCtx.fillText(line.trim(), textX, y);
+                lines.push(currentLine.trim());
+
+                // Calculate vertical centering
+                const totalTextHeight = lines.length * lineHeight;
+                const startYRel = (ann.height - totalTextHeight) / 2 + fontSize;
+                const startYAbs = ann.y + startYRel;
+
+                if (ann.pixelateLevel && ann.pixelateLevel > 0) {
+                    // Pixelated text rendering - draw at low resolution then scale up
+                    const scale = pixelateLevels[ann.pixelateLevel].scale;
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = Math.ceil(ann.width * scale);
+                    tempCanvas.height = Math.ceil(ann.height * scale);
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    // Disable smoothing for crisp pixels
+                    tempCtx.imageSmoothingEnabled = false;
+
+                    // Scale down context
+                    tempCtx.scale(scale, scale);
+
+                    // Draw text at lower resolution
+                    tempCtx.fillStyle = ann.color || '#000000';
+                    tempCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+                    tempCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        tempCtx.fillText(line, textXRel, startYRel + index * lineHeight);
+                    });
+
+                    // Draw scaled-up pixelated result
+                    annotationCtx.imageSmoothingEnabled = false;
+                    annotationCtx.drawImage(tempCanvas, ann.x, ann.y, ann.width, ann.height);
+                    annotationCtx.imageSmoothingEnabled = true;
+                } else {
+                    // Normal text rendering
+                    annotationCtx.fillStyle = ann.color || '#000000';
+                    annotationCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        annotationCtx.fillText(line, textXAbs, startYAbs + index * lineHeight);
+                    });
+                }
 
                 // Reset text alignment to default
                 annotationCtx.textAlign = 'left';
@@ -1173,6 +1614,58 @@ function redrawAnnotations() {
         annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
         annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
     }
+
+    // Draw resize handles for selected image
+    if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+        const img = state.selectedImage;
+        const handleSize = RESIZE_HANDLE_SIZE;
+        const halfHandle = handleSize / 2;
+
+        // Highlight selected image with thicker border
+        annotationCtx.strokeStyle = '#48bb78'; // Green for images
+        annotationCtx.lineWidth = 3;
+        annotationCtx.setLineDash([]);
+        annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
+
+        // Draw resize handles (small squares at corners and edges)
+        annotationCtx.fillStyle = '#48bb78';
+
+        // Corner handles
+        // Top-left
+        annotationCtx.fillRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Top-right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Bottom-left
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        // Bottom-right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+
+        // Edge handles (middle of each edge)
+        // Top
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Bottom
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        // Left
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+        // Right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+
+        // Add white border to handles for visibility
+        annotationCtx.strokeStyle = '#ffffff';
+        annotationCtx.lineWidth = 1;
+
+        // Corner handle borders
+        annotationCtx.strokeRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+
+        // Edge handle borders
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+    }
 }
 
 // Panel Functions (replacing modal)
@@ -1188,6 +1681,15 @@ function showTextPanel() {
     fontBoldCheckbox.checked = false;
     fontItalicCheckbox.checked = false;
     alignLeftRadio.checked = true; // Default to left alignment
+    pixelateTextCheckbox.checked = false; // Default to no pixelation
+    currentPixelateLevel = 0; // Reset pixelation level
+
+    // Reset pixelate button title
+    const toggleBtn = pixelateTextCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.title = 'Piksellendir: Kapalı';
+        toggleBtn.setAttribute('data-level', '0');
+    }
 
     textInput.focus();
 
@@ -1227,6 +1729,8 @@ async function applyText() {
     state.currentAnnotation.italic = fontItalicCheckbox.checked;
     // Save text alignment
     state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
+    // Save pixelation level
+    state.currentAnnotation.pixelateLevel = currentPixelateLevel;
 
     // Use AI to match font size
     if (useAI && state.apiKey) {
@@ -1255,7 +1759,7 @@ async function applyText() {
 
 // AI Integration
 async function enhanceTextWithAI(annotation) {
-    if (!state.apiKey) return;
+    if (!sharedState.apiKey) return;
 
     // Show loading indicator
     textInput.setAttribute('placeholder', 'AI metin stilini analiz ediyor...');
@@ -1343,7 +1847,7 @@ YOUR TASK: Detect the text properties with HIGH ACCURACY.
 RESPOND WITH ONLY A JSON OBJECT, NO OTHER TEXT:
 {"fontSize": number, "fontFamily": "string", "bold": boolean, "italic": boolean}`;
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${state.apiKey}`, {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${sharedState.apiKey}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -1704,29 +2208,134 @@ downloadBtn.addEventListener('click', async () => {
                 // Use hexToRgb defined above
                 const color = ann.color ? hexToRgb(ann.color) : { r: 0, g: 0, b: 0 };
 
-                // Calculate text X position based on alignment
-                const textWidth = font.widthOfTextAtSize(safeText, pdfFontSize);
-                const textAlign = ann.textAlign || 'left';
-                let textX;
-                const padding = 5 * scaleX;
+                // Check if pixelation is enabled
+                if (ann.pixelateLevel && ann.pixelateLevel > 0) {
+                    // Capture the exact rendered appearance from annotation canvas
+                    // First, we need to render this annotation to a temporary canvas exactly as it appears
 
-                if (textAlign === 'center') {
-                    textX = pdfX + (pdfWidth - textWidth) / 2;
-                } else if (textAlign === 'right') {
-                    textX = pdfX + pdfWidth - textWidth - padding;
+                    const pixelScale = pixelateLevels[ann.pixelateLevel].scale;
+                    const weight = ann.bold ? 'bold ' : '';
+                    const style = ann.italic ? 'italic ' : '';
+                    const family = ann.fontFamily || 'Inter';
+                    const annFontSize = ann.fontSize || 14;
+                    const lineHeight = annFontSize * 1.4;
+                    const textAlign = ann.textAlign || 'left';
+                    const padding = 5;
+
+                    // Create canvas at annotation size (what user sees on screen)
+                    const captureCanvas = document.createElement('canvas');
+                    captureCanvas.width = Math.ceil(ann.width);
+                    captureCanvas.height = Math.ceil(ann.height);
+                    const captureCtx = captureCanvas.getContext('2d');
+
+                    // Fill background if replace mode
+                    if (ann.type === 'replace' && ann.backgroundColor) {
+                        captureCtx.fillStyle = ann.backgroundColor;
+                        captureCtx.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
+                    } else {
+                        // Transparent background for add mode
+                        captureCtx.clearRect(0, 0, captureCanvas.width, captureCanvas.height);
+                    }
+
+                    // Calculate text position (relative to annotation)
+                    let textXRel;
+                    if (textAlign === 'center') {
+                        textXRel = ann.width / 2;
+                    } else if (textAlign === 'right') {
+                        textXRel = ann.width - padding;
+                    } else {
+                        textXRel = padding;
+                    }
+
+                    // Calculate lines for word wrap
+                    captureCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
+                    const words = ann.text.split(' ');
+                    let lines = [];
+                    let currentLine = '';
+
+                    words.forEach(word => {
+                        const testLine = currentLine + word + ' ';
+                        const metrics = captureCtx.measureText(testLine);
+                        if (metrics.width > ann.width - 10 && currentLine !== '') {
+                            lines.push(currentLine.trim());
+                            currentLine = word + ' ';
+                        } else {
+                            currentLine = testLine;
+                        }
+                    });
+                    lines.push(currentLine.trim());
+
+                    // Calculate vertical centering
+                    const totalTextHeight = lines.length * lineHeight;
+                    const startYRel = (ann.height - totalTextHeight) / 2 + annFontSize;
+
+                    // Create pixelated version (same logic as canvas rendering)
+                    const pixelCanvas = document.createElement('canvas');
+                    pixelCanvas.width = Math.ceil(ann.width * pixelScale);
+                    pixelCanvas.height = Math.ceil(ann.height * pixelScale);
+                    const pixelCtx = pixelCanvas.getContext('2d');
+                    pixelCtx.imageSmoothingEnabled = false;
+
+                    // Fill background if needed
+                    if (ann.type === 'replace' && ann.backgroundColor) {
+                        pixelCtx.fillStyle = ann.backgroundColor;
+                        pixelCtx.fillRect(0, 0, pixelCanvas.width, pixelCanvas.height);
+                    }
+
+                    // Scale down and draw text
+                    pixelCtx.scale(pixelScale, pixelScale);
+                    pixelCtx.fillStyle = ann.color || '#000000';
+                    pixelCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
+                    pixelCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        pixelCtx.fillText(line, textXRel, startYRel + index * lineHeight);
+                    });
+
+                    // Scale up to capture canvas (creates pixelated effect)
+                    captureCtx.imageSmoothingEnabled = false;
+                    captureCtx.drawImage(pixelCanvas, 0, 0, captureCanvas.width, captureCanvas.height);
+
+                    // Embed as PNG in PDF
+                    const dataUrl = captureCanvas.toDataURL('image/png');
+                    const base64Data = dataUrl.split(',')[1];
+                    const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                    const textImage = await pdfDoc.embedPng(imageBytes);
+
+                    page.drawImage(textImage, {
+                        x: pdfX,
+                        y: pdfY,
+                        width: pdfWidth,
+                        height: pdfHeight,
+                    });
+
+                    console.log('Drew pixelated text as image on page', ann.page);
                 } else {
-                    textX = pdfX + padding;
-                }
+                    // Normal text rendering
+                    // Calculate text X position based on alignment
+                    const textWidth = font.widthOfTextAtSize(safeText, pdfFontSize);
+                    const textAlign = ann.textAlign || 'left';
+                    let textX;
+                    const padding = 5 * scaleX;
 
-                // Draw text with sanitized characters
-                page.drawText(safeText, {
-                    x: textX,
-                    y: pdfY + pdfHeight - pdfFontSize - (5 * scaleY),
-                    size: pdfFontSize,
-                    font: font,
-                    color: rgb(color.r, color.g, color.b),
-                    maxWidth: pdfWidth - (10 * scaleX)
-                });
+                    if (textAlign === 'center') {
+                        textX = pdfX + (pdfWidth - textWidth) / 2;
+                    } else if (textAlign === 'right') {
+                        textX = pdfX + pdfWidth - textWidth - padding;
+                    } else {
+                        textX = pdfX + padding;
+                    }
+
+                    // Draw text with sanitized characters
+                    page.drawText(safeText, {
+                        x: textX,
+                        y: pdfY + pdfHeight - pdfFontSize - (5 * scaleY),
+                        size: pdfFontSize,
+                        font: font,
+                        color: rgb(color.r, color.g, color.b),
+                        maxWidth: pdfWidth - (10 * scaleX)
+                    });
+                }
             }
         }
 
@@ -1862,3 +2471,6 @@ window.editAnnotation = editAnnotation;
 window.goToAnnotation = goToAnnotation;
 window.closeTextModal = closeTextModal;
 window.applyText = applyText;
+
+// Initialize application
+initTabs();

@@ -2,6 +2,49 @@
 
 Tüm önemli değişiklikler bu dosyada belgelenir.
 
+## [2.1.0] - 2025-12-10 - **Multi-Tab & Piksellendir** 🚀
+
+### Yeni Özellikler
+- 🗂️ **Çoklu Çalışma Alanı (Tabs)** - Birden fazla PDF'i aynı anda açabilme
+  - Sekme barı ile kolay geçiş
+  - Her sekme bağımsız PDF, zoom, annotation desteği
+  - "+" butonu ile yeni sekme oluşturma
+  - Sekme kapatma özelliği
+
+- 🖼️ **Görsel Manipülasyonu** - Eklenen görselleri düzenleme
+  - Çift tıkla seçim
+  - Sürükle-bırak ile taşıma
+  - Köşe/kenarlardan yeniden boyutlandırma
+  - Resize handle'ları
+
+- 📐 **Metin Dikey Ortalama** - Yazılar kutunun tam ortasında
+  - Font boyutu değişince otomatik ortalama
+  - Tüm metin türlerinde çalışır
+
+- 🔍 **Zoom Sabitleme** - Düzenlemeler yerinde kalıyor
+  - Zoom değişince annotation'lar sabit
+  - Orantılı koordinat ölçekleme
+
+- 📊 **Sağ Sidebar Kontrolleri** - Yeni dikey kontrol barı
+  - 72px genişliğinde ince sidebar
+  - Büyük zoom butonları (44x44)
+  - Sayfa numarası kutu içinde gösterim
+  - Yukarı/aşağı ok navigasyonu
+
+- 🔳 **Piksellendir Efekti** - Tarama belgesi görünümü
+  - 4 seviye: Kapalı → Hafif (75%) → Orta (50%) → Yoğun (25%)
+  - Her tıklamada seviye değişir
+  - PDF indirmede efekt korunur
+  - Tarama belgelerine uyum sağlar
+
+### İyileştirmeler
+- 🔑 **Varsayılan API Anahtarı** - Kullanıcı girmesine gerek yok
+- ⚡ API key artık sharedState'de saklanıyor (tüm sekmeler için ortak)
+- 🎨 Tab barı modern tasarım
+- 🖱️ Geliştirilmiş hover ve cursor davranışları
+
+---
+
 ## [2.0.0] - 2025-12-09 - **Design V2** 🎨
 
 ### Radikal Tasarım Revizyonu

@@ -188,6 +188,19 @@
                                                 </svg>
                                             </span>
                                         </label>
+                                        <label class="style-toggle pixelate-toggle">
+                                            <input type="checkbox" id="pixelateText">
+                                            <span class="toggle-btn" title="Piksellendir (Tarama Efekti)">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <rect x="3" y="3" width="6" height="6"></rect>
+                                                    <rect x="15" y="3" width="6" height="6"></rect>
+                                                    <rect x="3" y="15" width="6" height="6"></rect>
+                                                    <rect x="15" y="15" width="6" height="6"></rect>
+                                                    <rect x="9" y="9" width="6" height="6"></rect>
+                                                </svg>
+                                            </span>
+                                        </label>
                                     </div>
                                 </div>
                             </div>
@@ -237,45 +250,73 @@
 
             <!-- Canvas Area -->
             <main class="canvas-area">
-                <div id="dropZone" class="drop-zone">
-                    <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke-width="2" />
-                        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke-width="2" stroke-linecap="round"
-                            stroke-linejoin="round" />
-                    </svg>
-                    <h2>PDF belgesi yükleyin</h2>
-                    <p>Dosyayı sürükleyip bırakın veya tıklayarak seçin</p>
-                    <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">
-                        Dosya Seç
-                    </button>
+                <!-- Tab Bar -->
+                <div class="tab-bar" id="tabBar">
+                    <div class="tabs-container" id="tabsContainer">
+                        <!-- Tabs will be added dynamically -->
+                        <!-- + button will be appended here after tabs -->
+                    </div>
                 </div>
 
-                <div id="canvasContainer" class="canvas-container" style="display: none;">
-                    <div class="canvas-controls">
-                        <button id="zoomOut" class="control-btn">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <circle cx="11" cy="11" r="8" stroke-width="2" />
-                                <path d="M21 21l-4.35-4.35M8 11h6" stroke-width="2" stroke-linecap="round" />
-                            </svg>
+                <div class="canvas-main-area">
+                    <div id="dropZone" class="drop-zone">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" stroke-width="2" />
+                            <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                        <h2>PDF belgesi yükleyin</h2>
+                        <p>Dosyayı sürükleyip bırakın veya tıklayarak seçin</p>
+                        <button class="btn btn-outline" onclick="document.getElementById('fileInput').click()">
+                            Dosya Seç
                         </button>
-                        <span id="zoomLevel">100%</span>
-                        <button id="zoomIn" class="control-btn">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                <circle cx="11" cy="11" r="8" stroke-width="2" />
-                                <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" stroke-width="2" stroke-linecap="round" />
-                            </svg>
-                        </button>
-                        <div class="page-controls">
-                            <button id="prevPage" class="control-btn" disabled>◀</button>
-                            <span id="pageInfo">Sayfa 1 / 1</span>
-                            <button id="nextPage" class="control-btn" disabled>▶</button>
-                        </div>
                     </div>
 
-                    <div class="canvas-wrapper">
-                        <div class="canvas-holder">
-                            <canvas id="pdfCanvas"></canvas>
-                            <canvas id="annotationCanvas"></canvas>
+                    <div id="canvasContainer" class="canvas-container" style="display: none;">
+                        <div class="canvas-wrapper">
+                            <div class="canvas-holder">
+                                <canvas id="pdfCanvas"></canvas>
+                                <canvas id="annotationCanvas"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Vertical Controls (Right Side) -->
+                        <div class="vertical-controls">
+                            <div class="zoom-controls-vertical">
+                                <button id="zoomIn" class="control-btn zoom-btn" title="Yakınlaştır">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <circle cx="11" cy="11" r="8" stroke-width="2" />
+                                        <path d="M21 21l-4.35-4.35M11 8v6M8 11h6" stroke-width="2"
+                                            stroke-linecap="round" />
+                                    </svg>
+                                </button>
+                                <span id="zoomLevel" class="zoom-level-vertical">100%</span>
+                                <button id="zoomOut" class="control-btn zoom-btn" title="Uzaklaştır">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                        <circle cx="11" cy="11" r="8" stroke-width="2" />
+                                        <path d="M21 21l-4.35-4.35M8 11h6" stroke-width="2" stroke-linecap="round" />
+                                    </svg>
+                                </button>
+                            </div>
+                            <div class="divider-vertical"></div>
+                            <div class="page-controls-vertical">
+                                <button id="prevPage" class="control-btn zoom-btn" disabled title="Önceki Sayfa">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="18,15 12,9 6,15"></polyline>
+                                    </svg>
+                                </button>
+                                <div class="page-display">
+                                    <span id="currentPage" class="current-page-box">1</span>
+                                    <span id="totalPages" class="total-pages">1</span>
+                                </div>
+                                <button id="nextPage" class="control-btn zoom-btn" disabled title="Sonraki Sayfa">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="6,9 12,15 18,9"></polyline>
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
