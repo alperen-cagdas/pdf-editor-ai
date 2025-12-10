@@ -337,6 +337,30 @@ textColorInput.addEventListener('input', (e) => {
     updateLivePreview();
 });
 fontBoldCheckbox.addEventListener('change', updateLivePreview);
+
+// Font weight cycling (0=normal, 1=semibold, 2=bold, 3=extrabold)
+let currentFontWeight = 0;
+const fontWeightLevels = [
+    { weight: 400, label: 'Normal', css: 'normal' },       // 0 - Normal
+    { weight: 600, label: 'Semibold', css: '600' },         // 1 - Semibold
+    { weight: 700, label: 'Bold', css: 'bold' },            // 2 - Bold
+    { weight: 800, label: 'Extrabold', css: '800' }         // 3 - Extrabold
+];
+
+fontBoldCheckbox.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentFontWeight = (currentFontWeight + 1) % 4;
+    fontBoldCheckbox.checked = currentFontWeight > 0;
+
+    // Update button visual feedback
+    const toggleBtn = fontBoldCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (toggleBtn) {
+        toggleBtn.title = `Kalınlık: ${fontWeightLevels[currentFontWeight].label}`;
+        toggleBtn.setAttribute('data-level', currentFontWeight);
+    }
+
+    updateLivePreview();
+});
 fontItalicCheckbox.addEventListener('change', updateLivePreview);
 alignLeftRadio.addEventListener('change', updateLivePreview);
 alignCenterRadio.addEventListener('change', updateLivePreview);
@@ -375,7 +399,7 @@ function updateLivePreview() {
     state.currentAnnotation.fontSize = parseInt(fontSizeInput.value) || 14;
     state.currentAnnotation.fontFamily = fontFamilySelect.value;
     state.currentAnnotation.color = textColorInput.value;
-    state.currentAnnotation.bold = fontBoldCheckbox.checked;
+    state.currentAnnotation.fontWeight = currentFontWeight; // 0=normal, 1=semibold, 2=bold, 3=extrabold
     state.currentAnnotation.italic = fontItalicCheckbox.checked;
     state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
     state.currentAnnotation.pixelateLevel = currentPixelateLevel;
@@ -446,7 +470,7 @@ function drawAnnotationPreview(ann) {
     if (ann.text) {
         const fontSize = ann.fontSize || 14;
         const lineHeight = fontSize * 1.4;
-        const weight = ann.bold ? 'bold ' : '';
+        const fontWeight = ann.fontWeight !== undefined ? fontWeightLevels[ann.fontWeight]?.css || 'normal' : (ann.bold ? 'bold' : 'normal');
         const style = ann.italic ? 'italic ' : '';
         const family = ann.fontFamily || 'Inter';
         const textAlign = ann.textAlign || 'left';
@@ -463,7 +487,7 @@ function drawAnnotationPreview(ann) {
         }
 
         // Calculate lines for word wrap (with newline support)
-        annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+        annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
         const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
 
         // Calculate vertical centering
@@ -486,7 +510,7 @@ function drawAnnotationPreview(ann) {
 
             // Draw text at lower resolution
             tempCtx.fillStyle = ann.color || '#000000';
-            tempCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+            tempCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
             tempCtx.textAlign = textAlign;
 
             lines.forEach((line, index) => {
@@ -500,7 +524,7 @@ function drawAnnotationPreview(ann) {
         } else {
             // Normal text rendering
             annotationCtx.fillStyle = ann.color || '#000000';
-            annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+            annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
             annotationCtx.textAlign = textAlign;
 
             lines.forEach((line, index) => {
@@ -1677,7 +1701,7 @@ function redrawAnnotations() {
 
             // Draw text if exists
             if (ann.text) {
-                const weight = ann.bold ? 'bold ' : '';
+                const fontWeight = ann.fontWeight !== undefined ? fontWeightLevels[ann.fontWeight]?.css || 'normal' : (ann.bold ? 'bold' : 'normal');
                 const style = ann.italic ? 'italic ' : '';
                 const family = ann.fontFamily || 'Inter';
                 const fontSize = ann.fontSize || 14;
@@ -1685,7 +1709,7 @@ function redrawAnnotations() {
                 const textAlign = ann.textAlign || 'left';
                 const padding = 5;
 
-                annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+                annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
 
                 // Calculate x position based on alignment (for pixelate we use relative position)
                 let textXRel; // Relative to annotation
@@ -1725,7 +1749,7 @@ function redrawAnnotations() {
 
                     // Draw text at lower resolution
                     tempCtx.fillStyle = ann.color || '#000000';
-                    tempCtx.font = `${style}${weight}${fontSize}px "${family}"`;
+                    tempCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
                     tempCtx.textAlign = textAlign;
 
                     lines.forEach((line, index) => {
@@ -1896,16 +1920,24 @@ function showTextPanel() {
     textColorInput.value = '#000000';
     colorValueLabel.textContent = '#000000';
     fontBoldCheckbox.checked = false;
+    currentFontWeight = 0; // Reset font weight level
     fontItalicCheckbox.checked = false;
     alignLeftRadio.checked = true; // Default to left alignment
     pixelateTextCheckbox.checked = false; // Default to no pixelation
     currentPixelateLevel = 0; // Reset pixelation level
 
     // Reset pixelate button title
-    const toggleBtn = pixelateTextCheckbox.parentElement?.querySelector('.toggle-btn');
-    if (toggleBtn) {
-        toggleBtn.title = 'Piksellendir: Kapalı';
-        toggleBtn.setAttribute('data-level', '0');
+    const pixelateToggleBtn = pixelateTextCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (pixelateToggleBtn) {
+        pixelateToggleBtn.title = 'Piksellendir: Kapalı';
+        pixelateToggleBtn.setAttribute('data-level', '0');
+    }
+
+    // Reset bold button title
+    const boldToggleBtn = fontBoldCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (boldToggleBtn) {
+        boldToggleBtn.title = 'Kalınlık: Normal';
+        boldToggleBtn.setAttribute('data-level', '0');
     }
 
     textInput.focus();
@@ -1942,7 +1974,7 @@ async function applyText() {
     state.currentAnnotation.fontSize = parseInt(fontSizeInput.value) || 14;
     state.currentAnnotation.fontFamily = fontFamilySelect.value;
     state.currentAnnotation.color = textColorInput.value;
-    state.currentAnnotation.bold = fontBoldCheckbox.checked;
+    state.currentAnnotation.fontWeight = currentFontWeight; // 0=normal, 1=semibold, 2=bold, 3=extrabold
     state.currentAnnotation.italic = fontItalicCheckbox.checked;
     // Save text alignment
     state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
@@ -2386,8 +2418,10 @@ downloadBtn.addEventListener('click', async () => {
         const pages = pdfDoc.getPages();
         console.log('Pages retrieved:', pages.length);
 
-        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-        console.log('Font embedded');
+        // Embed both regular and bold fonts
+        const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        console.log('Fonts embedded (regular + bold)');
 
         console.log('Processing', state.annotations.length, 'annotations');
 
@@ -2564,6 +2598,10 @@ downloadBtn.addEventListener('click', async () => {
                     const textAlign = ann.textAlign || 'left';
                     const padding = 5 * scaleX;
                     const lineHeight = pdfFontSize * 1.4;
+
+                    // Select font based on fontWeight (use bold for semibold, bold, extrabold)
+                    const isBold = ann.fontWeight !== undefined ? ann.fontWeight >= 1 : ann.bold;
+                    const font = isBold ? fontBold : fontRegular;
 
                     // Split text by newlines and apply word wrap
                     const textLines = safeText.split('\n');
