@@ -387,6 +387,44 @@ function updateLivePreview() {
     drawAnnotationPreview(state.currentAnnotation);
 }
 
+// Helper function to wrap text with support for newlines (Enter key)
+function wrapTextWithNewlines(ctx, text, maxWidth) {
+    const lines = [];
+
+    // First split by newline characters
+    const paragraphs = text.split('\n');
+
+    paragraphs.forEach(paragraph => {
+        if (paragraph.trim() === '') {
+            // Empty line (just Enter pressed)
+            lines.push('');
+            return;
+        }
+
+        // Word wrap each paragraph
+        const words = paragraph.split(' ');
+        let currentLine = '';
+
+        words.forEach(word => {
+            const testLine = currentLine + word + ' ';
+            const metrics = ctx.measureText(testLine);
+
+            if (metrics.width > maxWidth && currentLine !== '') {
+                lines.push(currentLine.trim());
+                currentLine = word + ' ';
+            } else {
+                currentLine = testLine;
+            }
+        });
+
+        if (currentLine.trim()) {
+            lines.push(currentLine.trim());
+        }
+    });
+
+    return lines;
+}
+
 // Draw annotation preview (for live editing)
 function drawAnnotationPreview(ann) {
     if (!ann) return;
@@ -424,24 +462,9 @@ function drawAnnotationPreview(ann) {
             textX = padding;
         }
 
-        // Calculate lines for word wrap
+        // Calculate lines for word wrap (with newline support)
         annotationCtx.font = `${style}${weight}${fontSize}px "${family}"`;
-        const words = ann.text.split(' ');
-        let lines = [];
-        let currentLine = '';
-
-        words.forEach(word => {
-            const testLine = currentLine + word + ' ';
-            const metrics = annotationCtx.measureText(testLine);
-
-            if (metrics.width > ann.width - 10 && currentLine !== '') {
-                lines.push(currentLine.trim());
-                currentLine = word + ' ';
-            } else {
-                currentLine = testLine;
-            }
-        });
-        lines.push(currentLine.trim());
+        const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
 
         // Calculate vertical centering
         const totalTextHeight = lines.length * lineHeight;
@@ -1621,10 +1644,7 @@ function drawDashedRect(x, y, width, height) {
     annotationCtx.setLineDash([5, 5]);
     annotationCtx.strokeRect(x, y, width, height);
     annotationCtx.setLineDash([]);
-
-    // Draw semi-transparent fill
-    annotationCtx.fillStyle = 'rgba(102, 126, 234, 0.1)';
-    annotationCtx.fillRect(x, y, width, height);
+    // No fill - only dashed border
 }
 
 function redrawAnnotations() {
@@ -1681,23 +1701,8 @@ function redrawAnnotations() {
                     textXAbs = ann.x + padding;
                 }
 
-                // First pass: calculate number of lines for vertical centering
-                const words = ann.text.split(' ');
-                let lines = [];
-                let currentLine = '';
-
-                words.forEach(word => {
-                    const testLine = currentLine + word + ' ';
-                    const metrics = annotationCtx.measureText(testLine);
-
-                    if (metrics.width > ann.width - 10 && currentLine !== '') {
-                        lines.push(currentLine.trim());
-                        currentLine = word + ' ';
-                    } else {
-                        currentLine = testLine;
-                    }
-                });
-                lines.push(currentLine.trim());
+                // First pass: calculate number of lines for vertical centering (with newline support)
+                const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
 
                 // Calculate vertical centering
                 const totalTextHeight = lines.length * lineHeight;
@@ -2505,23 +2510,9 @@ downloadBtn.addEventListener('click', async () => {
                         textXRel = padding;
                     }
 
-                    // Calculate lines for word wrap
+                    // Calculate lines for word wrap (with newline support)
                     captureCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
-                    const words = ann.text.split(' ');
-                    let lines = [];
-                    let currentLine = '';
-
-                    words.forEach(word => {
-                        const testLine = currentLine + word + ' ';
-                        const metrics = captureCtx.measureText(testLine);
-                        if (metrics.width > ann.width - 10 && currentLine !== '') {
-                            lines.push(currentLine.trim());
-                            currentLine = word + ' ';
-                        } else {
-                            currentLine = testLine;
-                        }
-                    });
-                    lines.push(currentLine.trim());
+                    const lines = wrapTextWithNewlines(captureCtx, ann.text, ann.width - 10);
 
                     // Calculate vertical centering
                     const totalTextHeight = lines.length * lineHeight;
@@ -2569,29 +2560,68 @@ downloadBtn.addEventListener('click', async () => {
 
                     console.log('Drew pixelated text as image on page', ann.page);
                 } else {
-                    // Normal text rendering
-                    // Calculate text X position based on alignment
-                    const textWidth = font.widthOfTextAtSize(safeText, pdfFontSize);
+                    // Normal text rendering with multiline support
                     const textAlign = ann.textAlign || 'left';
-                    let textX;
                     const padding = 5 * scaleX;
+                    const lineHeight = pdfFontSize * 1.4;
 
-                    if (textAlign === 'center') {
-                        textX = pdfX + (pdfWidth - textWidth) / 2;
-                    } else if (textAlign === 'right') {
-                        textX = pdfX + pdfWidth - textWidth - padding;
-                    } else {
-                        textX = pdfX + padding;
-                    }
+                    // Split text by newlines and apply word wrap
+                    const textLines = safeText.split('\n');
+                    let allLines = [];
 
-                    // Draw text with sanitized characters
-                    page.drawText(safeText, {
-                        x: textX,
-                        y: pdfY + pdfHeight - pdfFontSize - (5 * scaleY),
-                        size: pdfFontSize,
-                        font: font,
-                        color: rgb(color.r, color.g, color.b),
-                        maxWidth: pdfWidth - (10 * scaleX)
+                    textLines.forEach(paragraph => {
+                        if (paragraph.trim() === '') {
+                            allLines.push('');
+                            return;
+                        }
+
+                        // Simple word wrap for PDF
+                        const words = paragraph.split(' ');
+                        let currentLine = '';
+
+                        words.forEach(word => {
+                            const testLine = currentLine + word + ' ';
+                            const testWidth = font.widthOfTextAtSize(testLine, pdfFontSize);
+
+                            if (testWidth > pdfWidth - (10 * scaleX) && currentLine !== '') {
+                                allLines.push(currentLine.trim());
+                                currentLine = word + ' ';
+                            } else {
+                                currentLine = testLine;
+                            }
+                        });
+
+                        if (currentLine.trim()) {
+                            allLines.push(currentLine.trim());
+                        }
+                    });
+
+                    // Calculate vertical centering
+                    const totalTextHeight = allLines.length * lineHeight;
+                    const startY = pdfY + pdfHeight - ((pdfHeight - totalTextHeight) / 2) - pdfFontSize;
+
+                    // Draw each line
+                    allLines.forEach((line, index) => {
+                        if (line === '') return; // Skip empty lines but maintain spacing
+
+                        const lineWidth = font.widthOfTextAtSize(line, pdfFontSize);
+                        let textX;
+
+                        if (textAlign === 'center') {
+                            textX = pdfX + (pdfWidth - lineWidth) / 2;
+                        } else if (textAlign === 'right') {
+                            textX = pdfX + pdfWidth - lineWidth - padding;
+                        } else {
+                            textX = pdfX + padding;
+                        }
+
+                        page.drawText(line, {
+                            x: textX,
+                            y: startY - (index * lineHeight),
+                            size: pdfFontSize,
+                            font: font,
+                            color: rgb(color.r, color.g, color.b),
+                        });
                     });
                 }
             }
