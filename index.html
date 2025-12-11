@@ -275,6 +275,14 @@
 
                     <div id="canvasContainer" class="canvas-container" style="display: none;">
                         <div class="canvas-wrapper">
+                            <!-- Rulers (CSS pattern based, no canvas needed) -->
+                            <div class="ruler-corner"></div>
+                            <div id="rulerHorizontal" class="ruler ruler-horizontal"></div>
+                            <div id="rulerVertical" class="ruler ruler-vertical"></div>
+
+                            <!-- Guide lines overlay (full screen) -->
+                            <canvas id="guideCanvas" class="guide-overlay"></canvas>
+
                             <div class="canvas-holder">
                                 <canvas id="pdfCanvas"></canvas>
                                 <canvas id="annotationCanvas"></canvas>

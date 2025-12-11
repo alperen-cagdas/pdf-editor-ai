@@ -105,6 +105,12 @@ const annotationsList = document.getElementById('annotationsList');
 const downloadBtn = document.getElementById('downloadBtn');
 // Tab Bar Elements
 const tabsContainer = document.getElementById('tabsContainer');
+// Ruler Elements (now divs with CSS patterns, no canvas)
+const rulerHorizontal = document.getElementById('rulerHorizontal');
+const rulerVertical = document.getElementById('rulerVertical');
+// Guide Canvas (full screen overlay)
+const guideCanvas = document.getElementById('guideCanvas');
+const guideCtx = guideCanvas?.getContext('2d');
 
 // ============================
 // Tab Management Functions
@@ -229,8 +235,15 @@ dropZone.addEventListener('dragover', handleDragOver);
 dropZone.addEventListener('dragleave', handleDragLeave);
 dropZone.addEventListener('drop', handleDrop);
 
-zoomInBtn.addEventListener('click', () => setZoom(state.zoom + 0.25));
-zoomOutBtn.addEventListener('click', () => setZoom(state.zoom - 0.25));
+// Zoom in 10% increments (10%, 20%, 30%, etc.)
+zoomInBtn.addEventListener('click', () => {
+    const newZoom = Math.round((state.zoom + 0.1) * 10) / 10;
+    setZoom(newZoom);
+});
+zoomOutBtn.addEventListener('click', () => {
+    const newZoom = Math.round((state.zoom - 0.1) * 10) / 10;
+    setZoom(newZoom);
+});
 prevPageBtn.addEventListener('click', () => goToPage(state.currentPage - 1));
 nextPageBtn.addEventListener('click', () => goToPage(state.currentPage + 1));
 
@@ -829,6 +842,29 @@ async function loadPDF(arrayBuffer) {
         downloadBtn.disabled = false;
         console.log('Download button enabled:', !downloadBtn.disabled);
 
+        // Calculate fit-to-screen zoom
+        const firstPage = await state.pdfDoc.getPage(1);
+        const baseViewport = firstPage.getViewport({ scale: 1 });
+
+        // Get available canvas area (accounting for rulers and padding)
+        const canvasWrapper = document.querySelector('.canvas-wrapper');
+        // Less padding (60px) for tighter fit - 20px ruler + 40px margin
+        const availableWidth = canvasWrapper.clientWidth - 60;
+        const availableHeight = canvasWrapper.clientHeight - 60;
+
+        // Calculate zoom to fit (1.5 is the internal render scale factor)
+        const scaleX = availableWidth / (baseViewport.width * 1.5);
+        const scaleY = availableHeight / (baseViewport.height * 1.5);
+        const fitZoom = Math.min(scaleX, scaleY);
+
+        // Round to nearest 10% (using Math.round for better fit, not floor)
+        let roundedZoom = Math.round(fitZoom * 10) / 10;
+        // Clamp between 10% and 100%
+        state.zoom = Math.max(0.1, Math.min(roundedZoom, 1.0));
+        zoomLevel.textContent = Math.round(state.zoom * 100) + '%';
+
+        console.log('Fit zoom calculated:', state.zoom, 'from fitZoom:', fitZoom);
+
         await renderPage(state.currentPage);
         updatePageControls();
     } catch (error) {
@@ -862,14 +898,223 @@ async function renderPage(pageNum) {
 
         // Redraw annotations
         redrawAnnotations();
+
+        // Rulers are now CSS-based, no need to draw them
     } catch (error) {
         console.error('Error rendering page:', error);
     }
 }
 
+// Guide lines state - positions stored as percentages (0-1)
+const guideLines = {
+    horizontal: [], // Array of Y positions (as percentage 0-1)
+    vertical: [],   // Array of X positions (as percentage 0-1)
+    tempHorizontal: null, // Temporary guide while dragging (pixel)
+    tempVertical: null,
+    selectedGuide: null, // { type: 'horizontal' | 'vertical', index: number }
+    isDragging: false
+};
+
+// Draw guide lines on full-screen guide canvas
+function drawGuideLines() {
+    if (!guideCtx || !guideCanvas) return;
+
+    // Get the wrapper dimensions for full-screen guides
+    const wrapper = document.querySelector('.canvas-wrapper');
+    if (!wrapper) return;
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+
+    // Resize guide canvas to match wrapper
+    guideCanvas.width = width;
+    guideCanvas.height = height;
+
+    // Clear previous guides
+    guideCtx.clearRect(0, 0, width, height);
+
+    // Solid lines, no dash
+    guideCtx.setLineDash([]);
+
+    // Horizontal guides (red) - stored as percentage, draw as pixels
+    guideLines.horizontal.forEach((yPercent, index) => {
+        const y = yPercent * height;
+        const isSelected = guideLines.selectedGuide?.type === 'horizontal' && guideLines.selectedGuide?.index === index;
+        guideCtx.strokeStyle = isSelected ? 'rgba(239, 68, 68, 1)' : 'rgba(239, 68, 68, 0.6)';
+        guideCtx.lineWidth = isSelected ? 2 : 1;
+        guideCtx.beginPath();
+        guideCtx.moveTo(0, y);
+        guideCtx.lineTo(width, y);
+        guideCtx.stroke();
+    });
+
+    // Vertical guides (red) - stored as percentage, draw as pixels
+    guideLines.vertical.forEach((xPercent, index) => {
+        const x = xPercent * width;
+        const isSelected = guideLines.selectedGuide?.type === 'vertical' && guideLines.selectedGuide?.index === index;
+        guideCtx.strokeStyle = isSelected ? 'rgba(239, 68, 68, 1)' : 'rgba(239, 68, 68, 0.6)';
+        guideCtx.lineWidth = isSelected ? 2 : 1;
+        guideCtx.beginPath();
+        guideCtx.moveTo(x, 0);
+        guideCtx.lineTo(x, height);
+        guideCtx.stroke();
+    });
+
+    // Draw temporary guide while dragging (lighter)
+    guideCtx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+    guideCtx.lineWidth = 1;
+
+    if (guideLines.tempHorizontal !== null) {
+        guideCtx.beginPath();
+        guideCtx.moveTo(0, guideLines.tempHorizontal);
+        guideCtx.lineTo(width, guideLines.tempHorizontal);
+        guideCtx.stroke();
+    }
+
+    if (guideLines.tempVertical !== null) {
+        guideCtx.beginPath();
+        guideCtx.moveTo(guideLines.tempVertical, 0);
+        guideCtx.lineTo(guideLines.tempVertical, height);
+        guideCtx.stroke();
+    }
+}
+
+// Check if a point is near a guide line (for selection)
+// Takes canvas coordinates and converts to wrapper coordinates
+function getGuideAtPoint(canvasX, canvasY, threshold = 10) {
+    const wrapper = document.querySelector('.canvas-wrapper');
+    const canvasHolder = document.querySelector('.canvas-holder');
+    if (!wrapper || !canvasHolder) return null;
+
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const canvasRect = annotationCanvas.getBoundingClientRect();
+
+    // Convert canvas coords to wrapper coords
+    const wrapperX = (canvasRect.left - wrapperRect.left) + canvasX;
+    const wrapperY = (canvasRect.top - wrapperRect.top) + canvasY;
+
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+
+    // Check vertical guides (stored as percentage)
+    for (let i = 0; i < guideLines.vertical.length; i++) {
+        const guideX = guideLines.vertical[i] * width;
+        if (Math.abs(guideX - wrapperX) <= threshold) {
+            return { type: 'vertical', index: i };
+        }
+    }
+    // Check horizontal guides (stored as percentage)
+    for (let i = 0; i < guideLines.horizontal.length; i++) {
+        const guideY = guideLines.horizontal[i] * height;
+        if (Math.abs(guideY - wrapperY) <= threshold) {
+            return { type: 'horizontal', index: i };
+        }
+    }
+    return null;
+}
+
+// Ruler drag events for guide lines
+let rulerDragType = null; // 'horizontal' or 'vertical'
+
+// Top ruler (rulerHorizontal) → creates HORIZONTAL guides
+if (rulerHorizontal) {
+    rulerHorizontal.addEventListener('mousedown', (e) => {
+        rulerDragType = 'horizontal';
+        guideLines.isDragging = true;
+        const canvasRect = annotationCanvas.getBoundingClientRect();
+        guideLines.tempHorizontal = 0; // Start at top
+        redrawAnnotations();
+    });
+
+    rulerHorizontal.style.cursor = 'row-resize';
+}
+
+// Left ruler (rulerVertical) → creates VERTICAL guides
+if (rulerVertical) {
+    rulerVertical.addEventListener('mousedown', (e) => {
+        rulerDragType = 'vertical';
+        guideLines.isDragging = true;
+        const canvasRect = annotationCanvas.getBoundingClientRect();
+        guideLines.tempVertical = 0; // Start at left
+        redrawAnnotations();
+    });
+
+    rulerVertical.style.cursor = 'col-resize';
+}
+
+// Global mouse events for drag
+document.addEventListener('mousemove', (e) => {
+    if (!guideLines.isDragging) return;
+
+    const wrapper = document.querySelector('.canvas-wrapper');
+    if (!wrapper) return;
+    const wrapperRect = wrapper.getBoundingClientRect();
+
+    if (rulerDragType === 'vertical') {
+        guideLines.tempVertical = e.clientX - wrapperRect.left;
+        guideLines.tempHorizontal = null;
+    } else if (rulerDragType === 'horizontal') {
+        guideLines.tempHorizontal = e.clientY - wrapperRect.top;
+        guideLines.tempVertical = null;
+    }
+
+    drawGuideLines();
+});
+
+document.addEventListener('mouseup', (e) => {
+    if (!guideLines.isDragging) return;
+
+    const wrapper = document.querySelector('.canvas-wrapper');
+    if (!wrapper) return;
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const width = wrapper.clientWidth;
+    const height = wrapper.clientHeight;
+
+    // Only add guide if released over the wrapper area
+    if (e.clientX >= wrapperRect.left && e.clientX <= wrapperRect.right &&
+        e.clientY >= wrapperRect.top && e.clientY <= wrapperRect.bottom) {
+
+        // Save as percentage (0-1) for zoom independence
+        if (rulerDragType === 'vertical' && guideLines.tempVertical !== null) {
+            guideLines.vertical.push(guideLines.tempVertical / width);
+        } else if (rulerDragType === 'horizontal' && guideLines.tempHorizontal !== null) {
+            guideLines.horizontal.push(guideLines.tempHorizontal / height);
+        }
+    }
+
+    guideLines.tempVertical = null;
+    guideLines.tempHorizontal = null;
+    guideLines.isDragging = false;
+    rulerDragType = null;
+    drawGuideLines();
+});
+
+// Keyboard handler for deleting selected guide
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+        // Only delete if no input is focused
+        if (document.activeElement.tagName === 'INPUT' ||
+            document.activeElement.tagName === 'TEXTAREA') {
+            return;
+        }
+
+        // Delete selected guide
+        if (guideLines.selectedGuide) {
+            if (guideLines.selectedGuide.type === 'vertical') {
+                guideLines.vertical.splice(guideLines.selectedGuide.index, 1);
+            } else {
+                guideLines.horizontal.splice(guideLines.selectedGuide.index, 1);
+            }
+            guideLines.selectedGuide = null;
+            redrawAnnotations();
+            e.preventDefault();
+        }
+    }
+});
+
 // Zoom Control
 function setZoom(newZoom) {
-    if (newZoom >= 0.5 && newZoom <= 3.0) {
+    if (newZoom >= 0.1 && newZoom <= 3.0) {
         const oldZoom = state.zoom;
         state.zoom = newZoom;
         zoomLevel.textContent = Math.round(newZoom * 100) + '%';
@@ -1012,6 +1257,20 @@ function handleMouseDown(e) {
             state.dragOffsetY = state.startY - clickedAnnotation.y;
             annotationCanvas.style.cursor = 'grabbing';
             return;
+        }
+
+        // Check if clicked on a guide line
+        const clickedGuide = getGuideAtPoint(state.startX, state.startY);
+        if (clickedGuide) {
+            guideLines.selectedGuide = clickedGuide;
+            redrawAnnotations();
+            return;
+        }
+
+        // Clear guide selection if clicked elsewhere
+        if (guideLines.selectedGuide) {
+            guideLines.selectedGuide = null;
+            redrawAnnotations();
         }
     }
 
@@ -1912,6 +2171,9 @@ function redrawAnnotations() {
         annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
         annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
     }
+
+    // Draw guide lines
+    drawGuideLines();
 }
 
 // Panel Functions (replacing modal)

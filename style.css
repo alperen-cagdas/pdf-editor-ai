@@ -497,21 +497,142 @@ button.password-toggle svg {
 /* Canvas Wrapper - CRITICAL FOR CENTERING AND OVERLAY */
 .canvas-wrapper {
     flex: 1;
-    overflow: auto;
+    overflow: scroll;
+    /* Always show scrollbars */
     position: relative;
-    padding: 2rem;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    grid-template-rows: 20px 1fr;
     background:
         radial-gradient(circle at 20% 50%, rgba(102, 126, 234, 0.05) 0%, transparent 50%),
         radial-gradient(circle at 80% 80%, rgba(118, 75, 162, 0.05) 0%, transparent 50%);
 }
 
+/* Custom Scrollbar Styling for Canvas Wrapper - Very Visible */
+.canvas-wrapper {
+    /* Firefox scrollbar */
+    scrollbar-width: auto;
+    scrollbar-color: #888888 #333340;
+}
+
+.canvas-wrapper::-webkit-scrollbar {
+    width: 20px !important;
+    height: 20px !important;
+}
+
+.canvas-wrapper::-webkit-scrollbar-track {
+    background: #333340 !important;
+    border: 1px solid #444;
+}
+
+.canvas-wrapper::-webkit-scrollbar-thumb {
+    background: #888888 !important;
+    border: 2px solid #555;
+    min-height: 40px;
+}
+
+.canvas-wrapper::-webkit-scrollbar-thumb:hover {
+    background: #aaaaaa !important;
+}
+
+.canvas-wrapper::-webkit-scrollbar-thumb:active {
+    background: #cccccc !important;
+}
+
+.canvas-wrapper::-webkit-scrollbar-corner {
+    background: #333340 !important;
+}
+
+/* Ruler Corner (top-left square) */
+.ruler-corner {
+    grid-column: 1;
+    grid-row: 1;
+    background: #1a1a2e;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    z-index: 20;
+}
+
+/* Ruler Styles - Fixed patterns that never change */
+.ruler {
+    background: #1a1a2e;
+    z-index: 15;
+    display: block;
+}
+
+.ruler-horizontal {
+    grid-column: 2;
+    grid-row: 1;
+    height: 20px;
+    width: 100%;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    /* Fixed tick pattern - small every 10px, large every 50px */
+    background:
+        repeating-linear-gradient(90deg,
+            #4a5568 0px,
+            #4a5568 1px,
+            transparent 1px,
+            transparent 10px),
+        repeating-linear-gradient(90deg,
+            #4a5568 0px,
+            #4a5568 1px,
+            transparent 1px,
+            transparent 50px),
+        #1a1a2e;
+    background-size: 10px 5px, 50px 10px, 100% 100%;
+    background-position: 0 100%, 0 100%, 0 0;
+    background-repeat: repeat-x;
+}
+
+.ruler-vertical {
+    grid-column: 1;
+    grid-row: 2;
+    width: 20px;
+    height: 100%;
+    border-right: 1px solid var(--border);
+    position: sticky;
+    left: 0;
+    /* Fixed tick pattern - small every 10px, large every 50px */
+    background:
+        repeating-linear-gradient(180deg,
+            #4a5568 0px,
+            #4a5568 1px,
+            transparent 1px,
+            transparent 10px),
+        repeating-linear-gradient(180deg,
+            #4a5568 0px,
+            #4a5568 1px,
+            transparent 1px,
+            transparent 50px),
+        #1a1a2e;
+    background-size: 5px 10px, 10px 50px, 100% 100%;
+    background-position: 100% 0, 100% 0, 0 0;
+    background-repeat: repeat-y;
+}
+
+/* Guide lines overlay - covers entire wrapper */
+.guide-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 50;
+}
+
 /* Canvas holder for stacking */
 .canvas-holder {
+    grid-column: 2;
+    grid-row: 2;
     position: relative;
-    display: inline-block;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 2rem;
 }
 
 #pdfCanvas {
