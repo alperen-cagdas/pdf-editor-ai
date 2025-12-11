@@ -1697,7 +1697,10 @@ function redrawAnnotations() {
                 annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
             }
 
-            drawDashedRect(ann.x, ann.y, ann.width, ann.height);
+            // Only draw dashed border if this annotation is selected
+            if (state.selectedAnnotation === ann) {
+                drawDashedRect(ann.x, ann.y, ann.width, ann.height);
+            }
 
             // Draw text if exists
             if (ann.text) {
