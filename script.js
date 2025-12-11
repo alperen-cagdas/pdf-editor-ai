@@ -1682,12 +1682,14 @@ function redrawAnnotations() {
             if (ann.type === 'removeObject') {
                 annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
                 annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
-                // Draw subtle border to indicate it's an edit
-                annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.3)';
-                annotationCtx.lineWidth = 1;
-                annotationCtx.setLineDash([3, 3]);
-                annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
-                annotationCtx.setLineDash([]);
+                // Only draw border if selected
+                if (state.selectedAnnotation === ann) {
+                    annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.5)';
+                    annotationCtx.lineWidth = 2;
+                    annotationCtx.setLineDash([3, 3]);
+                    annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+                    annotationCtx.setLineDash([]);
+                }
                 return; // Don't draw anything else for removeObject
             }
 
