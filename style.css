@@ -629,8 +629,9 @@ button.password-toggle svg {
     grid-column: 2;
     grid-row: 2;
     position: relative;
-    display: inline-block;
-    /* Changed from flex to prevent centering issues */
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
     padding: 2rem;
 }
 
