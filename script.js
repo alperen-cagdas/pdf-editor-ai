@@ -1115,54 +1115,49 @@ document.addEventListener('keydown', (e) => {
 // Coordinate Management: NORMALIZED SYSTEM (0.0 - 1.0)
 // This ensures annotations are "part of the PDF" and independent of zoom/resolution.
 function ensureNormalizedCoordinates(ann) {
-    const width = annotationCanvas.width;
-    const height = annotationCanvas.height;
+    const rect = annotationCanvas.getBoundingClientRect(); // CSS Dimensions used for input x,y
 
-    // Safety check ensuring canvas has size
-    if (width === 0 || height === 0) return;
+    // Safety check ensuring canvas has size and is visible
+    if (rect.width === 0 || rect.height === 0) return;
 
     if (ann.nx === undefined) {
-        // CRITICAL: Assume stored coordinates are in BASE (Zoom 1.0) units.
-        // Current canvas width/height are at 'state.zoom'.
-        // We must divide current dimensions by zoom to get base dimensions.
-        const baseWidth = width / state.zoom;
-        const baseHeight = height / state.zoom;
-
-        ann.nx = ann.x / baseWidth;
-        ann.ny = ann.y / baseHeight;
-        ann.nw = ann.width / baseWidth;
-        ann.nh = ann.height / baseHeight;
+        // Assume stored coordinates are in CSS pixels (relative to current view)
+        // Normalize against CSS dimensions (rect)
+        ann.nx = ann.x / rect.width;
+        ann.ny = ann.y / rect.height;
+        ann.nw = ann.width / rect.width;
+        ann.nh = ann.height / rect.height;
 
         // Font size is relative to HEIGHT for consistency
         if (ann.fontSize) {
-            ann.nFontSize = ann.fontSize / baseHeight;
+            ann.nFontSize = ann.fontSize / rect.height;
         }
     }
 }
 
 function updateNormalizedCoordinates(ann) {
-    const width = annotationCanvas.width;
-    const height = annotationCanvas.height;
+    const rect = annotationCanvas.getBoundingClientRect(); // CSS Dimensions
 
     // Safety check
-    if (width === 0 || height === 0) return;
+    if (rect.width === 0 || rect.height === 0) return;
 
-    // Save current pixel position as normalized percentage
-    ann.nx = ann.x / width;
-    ann.ny = ann.y / height;
-    ann.nw = ann.width / width;
-    ann.nh = ann.height / height;
+    // Save current pixel position (CSS pixels from mouse events) as normalized percentage
+    ann.nx = ann.x / rect.width;
+    ann.ny = ann.y / rect.height;
+    ann.nw = ann.width / rect.width;
+    ann.nh = ann.height / rect.height;
 
     if (ann.fontSize) {
-        ann.nFontSize = ann.fontSize / height;
+        ann.nFontSize = ann.fontSize / rect.height;
     }
 }
 
 // Sync Pixel Coordinates from Normalized
-// Call this before drawing to ensure x/y match current zoom level
+// Output: Bitmap Coordinates for Drawing
+// Call this before drawing to ensure x/y match current zoom level and resolution
 function syncPixelCoordinates(ann) {
-    const width = annotationCanvas.width;
-    const height = annotationCanvas.height;
+    const width = annotationCanvas.width;   // Bitmap Width (includes scaling factor e.g. 1.5x)
+    const height = annotationCanvas.height; // Bitmap Height
 
     if (ann.nx !== undefined) {
         ann.x = ann.nx * width;
@@ -1171,11 +1166,20 @@ function syncPixelCoordinates(ann) {
         ann.height = ann.nh * height;
 
         if (ann.nFontSize) {
+            // Scale font size to match bitmap resolution
             ann.fontSize = ann.nFontSize * height;
         }
     } else {
-        // Migration for old annotations: create normalized coords now
+        // Migration: create normalized coords from current values
         ensureNormalizedCoordinates(ann);
+        // Then sync immediately if migration succeeded
+        if (ann.nx !== undefined) {
+            ann.x = ann.nx * width;
+            ann.y = ann.ny * height;
+            ann.width = ann.nw * width;
+            ann.height = ann.nh * height;
+            if (ann.nFontSize) ann.fontSize = ann.nFontSize * height;
+        }
     }
 }
 
