@@ -1121,72 +1121,54 @@ document.addEventListener('keydown', (e) => {
 });
 
 // =============================================================================
-// COORDINATE MANAGEMENT: Using PDF.js Official API
+// COORDINATE MANAGEMENT: SIMPLE PERCENTAGE SYSTEM
 // =============================================================================
-// Annotations are stored in TRUE PDF coordinates (points), converted using
-// PDF.js's viewport.convertToPdfPoint() and viewport.convertToViewportPoint()
+// Annotations are stored as percentages (0.0 - 1.0) of canvas dimensions.
+// This works because both canvases are now properly aligned (canvas-stack).
 // 
-// This is the ONLY correct way to handle coordinates across zoom levels.
+// Save: percentage = pixel / canvasSize
+// Load: pixel = percentage * canvasSize
 // =============================================================================
 
-// Convert current viewport (bitmap) coordinates to PDF coordinates and store them
+// Save annotation position as percentage of canvas
 function saveToPdfCoordinates(ann) {
-    const viewport = state.currentViewport;
-    if (!viewport || !viewport.convertToPdfPoint) {
-        console.warn('Viewport not available for coordinate conversion');
-        return;
-    }
+    const w = annotationCanvas.width;
+    const h = annotationCanvas.height;
 
-    // Use PDF.js official API to convert viewport coords to PDF coords
-    // Note: PDF coordinates have origin at bottom-left, viewport at top-left
-    // convertToPdfPoint handles this transformation
-    const [pdfX, pdfY] = viewport.convertToPdfPoint(ann.x, ann.y);
-    const [pdfX2, pdfY2] = viewport.convertToPdfPoint(ann.x + ann.width, ann.y + ann.height);
+    if (w === 0 || h === 0) return;
 
-    // Store PDF coordinates (zoom-independent, origin at bottom-left of page)
-    ann.pdfX = pdfX;
-    ann.pdfY = pdfY;
-    ann.pdfWidth = Math.abs(pdfX2 - pdfX);
-    ann.pdfHeight = Math.abs(pdfY2 - pdfY);
+    // Store as percentage (0.0 to 1.0)
+    ann.pdfX = ann.x / w;
+    ann.pdfY = ann.y / h;
+    ann.pdfWidth = ann.width / w;
+    ann.pdfHeight = ann.height / h;
 
     if (ann.fontSize) {
-        // Font size scales with the viewport
-        ann.pdfFontSize = ann.fontSize / viewport.scale;
+        ann.pdfFontSize = ann.fontSize / h;
     }
 }
 
-// Calculate viewport (bitmap) coordinates from stored PDF coordinates
+// Load annotation position from percentage
 function loadFromPdfCoordinates(ann) {
-    const viewport = state.currentViewport;
-    if (!viewport || !viewport.convertToViewportPoint) {
-        console.warn('Viewport not available for coordinate conversion');
-        return;
-    }
+    const w = annotationCanvas.width;
+    const h = annotationCanvas.height;
 
-    // If PDF coordinates exist, calculate viewport coordinates
     if (ann.pdfX !== undefined) {
-        // Use PDF.js official API to convert PDF coords to viewport coords
-        const [x1, y1] = viewport.convertToViewportPoint(ann.pdfX, ann.pdfY);
-        const [x2, y2] = viewport.convertToViewportPoint(
-            ann.pdfX + ann.pdfWidth,
-            ann.pdfY - ann.pdfHeight  // Note: PDF Y increases upward
-        );
-
-        ann.x = Math.min(x1, x2);
-        ann.y = Math.min(y1, y2);
-        ann.width = Math.abs(x2 - x1);
-        ann.height = Math.abs(y2 - y1);
+        ann.x = ann.pdfX * w;
+        ann.y = ann.pdfY * h;
+        ann.width = ann.pdfWidth * w;
+        ann.height = ann.pdfHeight * h;
 
         if (ann.pdfFontSize) {
-            ann.fontSize = ann.pdfFontSize * viewport.scale;
+            ann.fontSize = ann.pdfFontSize * h;
         }
     } else {
-        // Migration: First time seeing this annotation, save current coords as PDF coords
+        // First time: save current position as percentage
         saveToPdfCoordinates(ann);
     }
 }
 
-// Legacy function names for compatibility (redirect to new system)
+// Legacy function names for compatibility
 function ensureNormalizedCoordinates(ann) {
     if (ann.pdfX === undefined) {
         saveToPdfCoordinates(ann);

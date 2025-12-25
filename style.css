@@ -624,15 +624,20 @@ button.password-toggle svg {
     z-index: 50;
 }
 
-/* Canvas holder for stacking */
+/* Canvas holder for stacking - CRITICAL: Both canvases must be exactly aligned */
 .canvas-holder {
     grid-column: 2;
     grid-row: 2;
     position: relative;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    display: inline-block;
+    /* Changed from flex to prevent centering issues */
     padding: 2rem;
+}
+
+/* Container for stacking canvases exactly on top of each other */
+.canvas-stack {
+    position: relative;
+    display: inline-block;
 }
 
 #pdfCanvas {

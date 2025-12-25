@@ -284,8 +284,11 @@
                             <canvas id="guideCanvas" class="guide-overlay"></canvas>
 
                             <div class="canvas-holder">
-                                <canvas id="pdfCanvas"></canvas>
-                                <canvas id="annotationCanvas"></canvas>
+                                <!-- Canvas stack ensures annotation canvas is EXACTLY over PDF canvas -->
+                                <div class="canvas-stack">
+                                    <canvas id="pdfCanvas"></canvas>
+                                    <canvas id="annotationCanvas"></canvas>
+                                </div>
                             </div>
                         </div>
 
