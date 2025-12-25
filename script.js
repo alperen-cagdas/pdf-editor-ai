@@ -601,6 +601,10 @@ function handleDoubleClick(e) {
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
 
+    // Ensure all annotations have current bitmap coordinates for hit detection
+    if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
+    if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
+
     // Find clicked text annotation
     const clickedAnnotation = state.annotations
         .filter(ann => ann.page === state.currentPage)
@@ -1189,7 +1193,7 @@ function syncPixelCoordinates(ann) {
 }
 
 // Zoom Control
-function setZoom(newZoom) {
+async function setZoom(newZoom) {
     if (newZoom >= 0.1 && newZoom <= 3.0) {
         // Ensure we have normalized coords before resizing (capture logical position)
         if (state.annotations) state.annotations.forEach(ensureNormalizedCoordinates);
@@ -1198,10 +1202,9 @@ function setZoom(newZoom) {
         state.zoom = newZoom;
         zoomLevel.textContent = Math.round(newZoom * 100) + '%';
 
-        // NOTE: We do NOT calculate coordinates here anymore.
-        // renderPage() will resize the canvas -> redrawAnnotations() will sync pixels from normalized coords.
-
-        renderPage(state.currentPage);
+        // Wait for page to fully render before continuing
+        // This ensures canvas is resized and annotations are synced
+        await renderPage(state.currentPage);
     }
 }
 
@@ -1251,6 +1254,10 @@ function handleMouseDown(e) {
     state.startX = (e.clientX - rect.left) * scaleX;
     state.startY = (e.clientY - rect.top) * scaleY;
     state.isDrawing = true;
+
+    // Ensure all annotations have current bitmap coordinates for hit detection
+    if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
+    if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
 
     if (state.activeTool === 'move') {
         // Check if starting to resize selected annotation
@@ -1333,6 +1340,8 @@ function handleMouseDown(e) {
     }
 
     if (state.activeTool === 'replace' || state.activeTool === 'add') {
+        // Capture background color at click point immediately
+        const clickPointColor = getColorAtPoint(state.startX, state.startY);
         state.currentAnnotation = {
             x: state.startX,
             y: state.startY,
@@ -1340,7 +1349,8 @@ function handleMouseDown(e) {
             height: 0,
             page: state.currentPage,
             text: '',
-            type: state.activeTool // 'replace' or 'add'
+            type: state.activeTool, // 'replace' or 'add'
+            backgroundColor: state.activeTool === 'replace' ? clickPointColor : undefined
         };
     }
 
@@ -1358,13 +1368,16 @@ function handleMouseDown(e) {
 
     // Remove object mode
     if (state.activeTool === 'removeObject') {
+        // Capture background color at click point immediately
+        const clickPointColor = getColorAtPoint(state.startX, state.startY);
         state.currentAnnotation = {
             x: state.startX,
             y: state.startY,
             width: 0,
             height: 0,
             page: state.currentPage,
-            type: 'removeObject'
+            type: 'removeObject',
+            backgroundColor: clickPointColor
         };
     }
 }
@@ -1924,6 +1937,27 @@ function handleMouseUp(e) {
             state.currentAnnotation = null;
             redrawAnnotations();
         }
+    }
+}
+
+// Get color at a specific point on the PDF canvas
+function getColorAtPoint(x, y) {
+    try {
+        const px = Math.round(x);
+        const py = Math.round(y);
+
+        // Get single pixel from PDF canvas
+        const imageData = pdfCtx.getImageData(px, py, 1, 1);
+        const [r, g, b, a] = imageData.data;
+
+        if (a < 128) {
+            return '#ffffff'; // Transparent = white
+        }
+
+        return '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+    } catch (error) {
+        console.error('Error getting color at point:', error);
+        return '#ffffff';
     }
 }
 
