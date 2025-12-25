@@ -595,8 +595,11 @@ function handleDoubleClick(e) {
     if (state.activeTool !== 'move') return;
 
     const rect = annotationCanvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    // Convert CSS pixels to Bitmap pixels
+    const scaleX = annotationCanvas.width / rect.width;
+    const scaleY = annotationCanvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
     // Find clicked text annotation
     const clickedAnnotation = state.annotations
@@ -1114,41 +1117,43 @@ document.addEventListener('keydown', (e) => {
 
 // Coordinate Management: NORMALIZED SYSTEM (0.0 - 1.0)
 // This ensures annotations are "part of the PDF" and independent of zoom/resolution.
+// ALL coordinates (x, y, width, height) are now in BITMAP pixels.
 function ensureNormalizedCoordinates(ann) {
-    const rect = annotationCanvas.getBoundingClientRect(); // CSS Dimensions used for input x,y
+    const width = annotationCanvas.width;   // Bitmap dimensions
+    const height = annotationCanvas.height;
 
-    // Safety check ensuring canvas has size and is visible
-    if (rect.width === 0 || rect.height === 0) return;
+    // Safety check ensuring canvas has size
+    if (width === 0 || height === 0) return;
 
     if (ann.nx === undefined) {
-        // Assume stored coordinates are in CSS pixels (relative to current view)
-        // Normalize against CSS dimensions (rect)
-        ann.nx = ann.x / rect.width;
-        ann.ny = ann.y / rect.height;
-        ann.nw = ann.width / rect.width;
-        ann.nh = ann.height / rect.height;
+        // Normalize against Bitmap dimensions
+        ann.nx = ann.x / width;
+        ann.ny = ann.y / height;
+        ann.nw = ann.width / width;
+        ann.nh = ann.height / height;
 
         // Font size is relative to HEIGHT for consistency
         if (ann.fontSize) {
-            ann.nFontSize = ann.fontSize / rect.height;
+            ann.nFontSize = ann.fontSize / height;
         }
     }
 }
 
 function updateNormalizedCoordinates(ann) {
-    const rect = annotationCanvas.getBoundingClientRect(); // CSS Dimensions
+    const width = annotationCanvas.width;   // Bitmap dimensions
+    const height = annotationCanvas.height;
 
     // Safety check
-    if (rect.width === 0 || rect.height === 0) return;
+    if (width === 0 || height === 0) return;
 
-    // Save current pixel position (CSS pixels from mouse events) as normalized percentage
-    ann.nx = ann.x / rect.width;
-    ann.ny = ann.y / rect.height;
-    ann.nw = ann.width / rect.width;
-    ann.nh = ann.height / rect.height;
+    // Save current pixel position (Bitmap pixels) as normalized percentage
+    ann.nx = ann.x / width;
+    ann.ny = ann.y / height;
+    ann.nw = ann.width / width;
+    ann.nh = ann.height / height;
 
     if (ann.fontSize) {
-        ann.nFontSize = ann.fontSize / rect.height;
+        ann.nFontSize = ann.fontSize / height;
     }
 }
 
@@ -1240,8 +1245,11 @@ function handleMouseDown(e) {
     if (!state.pdfDoc) return;
 
     const rect = annotationCanvas.getBoundingClientRect();
-    state.startX = (e.clientX - rect.left);
-    state.startY = (e.clientY - rect.top);
+    // Convert CSS pixels to Bitmap pixels (accounts for outputScale e.g. 1.5x)
+    const scaleX = annotationCanvas.width / rect.width;
+    const scaleY = annotationCanvas.height / rect.height;
+    state.startX = (e.clientX - rect.left) * scaleX;
+    state.startY = (e.clientY - rect.top) * scaleY;
     state.isDrawing = true;
 
     if (state.activeTool === 'move') {
@@ -1363,8 +1371,11 @@ function handleMouseDown(e) {
 
 function handleMouseMove(e) {
     const rect = annotationCanvas.getBoundingClientRect();
-    const currentX = (e.clientX - rect.left);
-    const currentY = (e.clientY - rect.top);
+    // Convert CSS pixels to Bitmap pixels
+    const scaleX = annotationCanvas.width / rect.width;
+    const scaleY = annotationCanvas.height / rect.height;
+    const currentX = (e.clientX - rect.left) * scaleX;
+    const currentY = (e.clientY - rect.top) * scaleY;
 
     // Handle Resizing
     if (state.resizingAnnotation) {
