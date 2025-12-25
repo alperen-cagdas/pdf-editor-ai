@@ -886,8 +886,9 @@ async function renderPage(pageNum) {
         const page = await state.pdfDoc.getPage(pageNum);
         const viewport = page.getViewport({ scale: state.zoom * 1.5 });
 
-        // Store current viewport dimensions
-        state.currentViewport = { width: viewport.width, height: viewport.height };
+        // Store the FULL viewport object for coordinate conversions
+        // This is critical for zoom-independent positioning
+        state.currentViewport = viewport;
 
         // Setup canvases
         pdfCanvas.width = viewport.width;
@@ -1120,54 +1121,67 @@ document.addEventListener('keydown', (e) => {
 });
 
 // =============================================================================
-// COORDINATE MANAGEMENT: PDF-BASED SYSTEM (Zoom Independent)
+// COORDINATE MANAGEMENT: Using PDF.js Official API
 // =============================================================================
-// Annotations are stored in PDF coordinates (points), not screen pixels.
-// PDF coordinates remain constant regardless of zoom level.
+// Annotations are stored in TRUE PDF coordinates (points), converted using
+// PDF.js's viewport.convertToPdfPoint() and viewport.convertToViewportPoint()
 // 
-// Conversion:
-//   pdfX = bitmapX / scale       (where scale = state.zoom * outputScale)
-//   bitmapX = pdfX * scale
-//
-// The outputScale (1.5) is used by PDF.js for high-DPI rendering.
+// This is the ONLY correct way to handle coordinates across zoom levels.
 // =============================================================================
 
-const OUTPUT_SCALE = 1.5; // Must match the value in renderPage()
-
-// Convert current bitmap coordinates to PDF coordinates and store them
+// Convert current viewport (bitmap) coordinates to PDF coordinates and store them
 function saveToPdfCoordinates(ann) {
-    const scale = state.zoom * OUTPUT_SCALE;
+    const viewport = state.currentViewport;
+    if (!viewport || !viewport.convertToPdfPoint) {
+        console.warn('Viewport not available for coordinate conversion');
+        return;
+    }
 
-    if (scale === 0) return; // Safety check
+    // Use PDF.js official API to convert viewport coords to PDF coords
+    // Note: PDF coordinates have origin at bottom-left, viewport at top-left
+    // convertToPdfPoint handles this transformation
+    const [pdfX, pdfY] = viewport.convertToPdfPoint(ann.x, ann.y);
+    const [pdfX2, pdfY2] = viewport.convertToPdfPoint(ann.x + ann.width, ann.y + ann.height);
 
-    // Store PDF coordinates (zoom-independent)
-    ann.pdfX = ann.x / scale;
-    ann.pdfY = ann.y / scale;
-    ann.pdfWidth = ann.width / scale;
-    ann.pdfHeight = ann.height / scale;
+    // Store PDF coordinates (zoom-independent, origin at bottom-left of page)
+    ann.pdfX = pdfX;
+    ann.pdfY = pdfY;
+    ann.pdfWidth = Math.abs(pdfX2 - pdfX);
+    ann.pdfHeight = Math.abs(pdfY2 - pdfY);
 
     if (ann.fontSize) {
-        ann.pdfFontSize = ann.fontSize / scale;
+        // Font size scales with the viewport
+        ann.pdfFontSize = ann.fontSize / viewport.scale;
     }
 }
 
-// Calculate bitmap coordinates from stored PDF coordinates
+// Calculate viewport (bitmap) coordinates from stored PDF coordinates
 function loadFromPdfCoordinates(ann) {
-    const scale = state.zoom * OUTPUT_SCALE;
+    const viewport = state.currentViewport;
+    if (!viewport || !viewport.convertToViewportPoint) {
+        console.warn('Viewport not available for coordinate conversion');
+        return;
+    }
 
-    // If PDF coordinates exist, calculate bitmap coordinates
+    // If PDF coordinates exist, calculate viewport coordinates
     if (ann.pdfX !== undefined) {
-        ann.x = ann.pdfX * scale;
-        ann.y = ann.pdfY * scale;
-        ann.width = ann.pdfWidth * scale;
-        ann.height = ann.pdfHeight * scale;
+        // Use PDF.js official API to convert PDF coords to viewport coords
+        const [x1, y1] = viewport.convertToViewportPoint(ann.pdfX, ann.pdfY);
+        const [x2, y2] = viewport.convertToViewportPoint(
+            ann.pdfX + ann.pdfWidth,
+            ann.pdfY - ann.pdfHeight  // Note: PDF Y increases upward
+        );
+
+        ann.x = Math.min(x1, x2);
+        ann.y = Math.min(y1, y2);
+        ann.width = Math.abs(x2 - x1);
+        ann.height = Math.abs(y2 - y1);
 
         if (ann.pdfFontSize) {
-            ann.fontSize = ann.pdfFontSize * scale;
+            ann.fontSize = ann.pdfFontSize * viewport.scale;
         }
     } else {
         // Migration: First time seeing this annotation, save current coords as PDF coords
-        // Assume current x/y are at current zoom level
         saveToPdfCoordinates(ann);
     }
 }
