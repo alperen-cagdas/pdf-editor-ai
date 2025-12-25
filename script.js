@@ -1113,34 +1113,12 @@ document.addEventListener('keydown', (e) => {
 });
 
 // Zoom Control
+// Annotations are stored in BASE coordinates (zoom=1.0)
+// They are scaled during rendering, not during zoom changes
 function setZoom(newZoom) {
     if (newZoom >= 0.1 && newZoom <= 3.0) {
-        const oldZoom = state.zoom;
         state.zoom = newZoom;
         zoomLevel.textContent = Math.round(newZoom * 100) + '%';
-
-        // Calculate scale factor for coordinate conversion
-        const scaleFactor = newZoom / oldZoom;
-
-        // Scale all text annotations (all pages, as they share coordinate system)
-        state.annotations.forEach(ann => {
-            ann.x *= scaleFactor;
-            ann.y *= scaleFactor;
-            ann.width *= scaleFactor;
-            ann.height *= scaleFactor;
-            // Also scale font size to maintain proportion
-            if (ann.fontSize) {
-                ann.fontSize *= scaleFactor;
-            }
-        });
-
-        // Scale all image annotations
-        state.imageAnnotations.forEach(img => {
-            img.x *= scaleFactor;
-            img.y *= scaleFactor;
-            img.width *= scaleFactor;
-            img.height *= scaleFactor;
-        });
 
         // Clear selection to avoid stale references
         state.selectedAnnotation = null;
