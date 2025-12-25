@@ -1424,6 +1424,8 @@ function handleMouseMove(e) {
             }
         }
 
+        // Keep normalized coords in sync with pixel changes
+        updateNormalizedCoordinates(ann);
         redrawAnnotations();
         return;
     }
@@ -1630,6 +1632,8 @@ function handleMouseMove(e) {
             }
         }
 
+        // Keep normalized coords in sync with pixel changes
+        updateNormalizedCoordinates(img);
         redrawAnnotations();
         return;
     }
@@ -1638,6 +1642,8 @@ function handleMouseMove(e) {
     if (state.draggedAnnotation) {
         state.draggedAnnotation.x = currentX - state.dragOffsetX;
         state.draggedAnnotation.y = currentY - state.dragOffsetY;
+        // Keep normalized coords in sync with pixel changes
+        updateNormalizedCoordinates(state.draggedAnnotation);
         redrawAnnotations();
         return;
     }
@@ -1646,6 +1652,8 @@ function handleMouseMove(e) {
     if (state.draggedImage) {
         state.draggedImage.x = currentX - state.dragOffsetX;
         state.draggedImage.y = currentY - state.dragOffsetY;
+        // Keep normalized coords in sync with pixel changes
+        updateNormalizedCoordinates(state.draggedImage);
         redrawAnnotations();
         return;
     }
