@@ -553,24 +553,16 @@ function drawAnnotationPreview(ann) {
 const RESIZE_HANDLE_SIZE = 8;
 
 // Helper function to detect which resize edge/corner is being hovered
-// x, y are screen coordinates, ann has base coordinates
 function getResizeEdge(x, y, ann) {
     if (!ann) return null;
 
-    // Convert annotation base coordinates to screen coordinates
-    const screenAnn = baseToScreen(ann.x, ann.y, ann.width, ann.height);
-    const sx = screenAnn.x;
-    const sy = screenAnn.y;
-    const sw = screenAnn.width;
-    const sh = screenAnn.height;
-
     const handles = RESIZE_HANDLE_SIZE;
-    const onLeft = Math.abs(x - sx) <= handles;
-    const onRight = Math.abs(x - (sx + sw)) <= handles;
-    const onTop = Math.abs(y - sy) <= handles;
-    const onBottom = Math.abs(y - (sy + sh)) <= handles;
-    const inHorizontalRange = x >= sx - handles && x <= sx + sw + handles;
-    const inVerticalRange = y >= sy - handles && y <= sy + sh + handles;
+    const onLeft = Math.abs(x - ann.x) <= handles;
+    const onRight = Math.abs(x - (ann.x + ann.width)) <= handles;
+    const onTop = Math.abs(y - ann.y) <= handles;
+    const onBottom = Math.abs(y - (ann.y + ann.height)) <= handles;
+    const inHorizontalRange = x >= ann.x - handles && x <= ann.x + ann.width + handles;
+    const inVerticalRange = y >= ann.y - handles && y <= ann.y + ann.height + handles;
 
     // Corners first (higher priority)
     if (onTop && onLeft && inHorizontalRange && inVerticalRange) return 'nw';
@@ -606,26 +598,22 @@ function handleDoubleClick(e) {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
-    // Convert screen coords to base for comparison
-    const baseX = screenToBaseValue(x);
-    const baseY = screenToBaseValue(y);
-
-    // Find clicked text annotation (using base coordinates)
+    // Find clicked text annotation
     const clickedAnnotation = state.annotations
         .filter(ann => ann.page === state.currentPage)
         .slice().reverse()
         .find(ann =>
-            baseX >= ann.x && baseX <= ann.x + ann.width &&
-            baseY >= ann.y && baseY <= ann.y + ann.height
+            x >= ann.x && x <= ann.x + ann.width &&
+            y >= ann.y && y <= ann.y + ann.height
         );
 
-    // Find clicked image annotation (using base coordinates)
+    // Find clicked image annotation
     const clickedImage = state.imageAnnotations
         .filter(img => img.page === state.currentPage)
         .slice().reverse()
         .find(img =>
-            baseX >= img.x && baseX <= img.x + img.width &&
-            baseY >= img.y && baseY <= img.y + img.height
+            x >= img.x && x <= img.x + img.width &&
+            y >= img.y && y <= img.y + img.height
         );
 
     // Prefer image if both overlap (images are on top)
@@ -1124,52 +1112,54 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// ============================
-// Coordinate Conversion Helpers
-// ============================
-// All annotations are stored in BASE coordinates (zoom=1.0, scale=1.5)
-// Screen coordinates = base coordinates * zoom
-// Base coordinates = screen coordinates / zoom
-
-// Convert screen coordinates to base coordinates (for storing)
-function screenToBase(x, y, width, height) {
-    const zoom = state.zoom;
-    return {
-        x: x / zoom,
-        y: y / zoom,
-        width: width !== undefined ? width / zoom : undefined,
-        height: height !== undefined ? height / zoom : undefined
-    };
+// Coordinate Management for Zoom Stability
+function ensureBaseCoordinates(ann) {
+    // If base coords missing, generate them from current state
+    if (ann.baseX === undefined) {
+        ann.baseX = ann.x / state.zoom;
+        ann.baseY = ann.y / state.zoom;
+        ann.baseWidth = ann.width / state.zoom;
+        ann.baseHeight = ann.height / state.zoom;
+        if (ann.fontSize) ann.baseFontSize = ann.fontSize / state.zoom;
+    }
 }
 
-// Convert base coordinates to screen coordinates (for rendering)
-function baseToScreen(x, y, width, height) {
-    const zoom = state.zoom;
-    return {
-        x: x * zoom,
-        y: y * zoom,
-        width: width !== undefined ? width * zoom : undefined,
-        height: height !== undefined ? height * zoom : undefined
-    };
-}
-
-// Convert a single value from screen to base
-function screenToBaseValue(value) {
-    return value / state.zoom;
-}
-
-// Convert a single value from base to screen
-function baseToScreenValue(value) {
-    return value * state.zoom;
+function updateBaseCoordinates(ann) {
+    // Call this after any move/resize operation to sync base coords
+    ann.baseX = ann.x / state.zoom;
+    ann.baseY = ann.y / state.zoom;
+    ann.baseWidth = ann.width / state.zoom;
+    ann.baseHeight = ann.height / state.zoom;
+    if (ann.fontSize) ann.baseFontSize = ann.fontSize / state.zoom;
 }
 
 // Zoom Control
-// Annotations are stored in BASE coordinates (zoom=1.0)
-// They are scaled during rendering, not during zoom changes
 function setZoom(newZoom) {
     if (newZoom >= 0.1 && newZoom <= 3.0) {
+        // Ensure all annotations have base coordinates before changing zoom
+        state.annotations.forEach(ensureBaseCoordinates);
+        state.imageAnnotations.forEach(ensureBaseCoordinates);
+
         state.zoom = newZoom;
         zoomLevel.textContent = Math.round(newZoom * 100) + '%';
+
+        // Re-calculate positions from BASE coordinates (Prevents drift!)
+        state.annotations.forEach(ann => {
+            ann.x = ann.baseX * newZoom;
+            ann.y = ann.baseY * newZoom;
+            ann.width = ann.baseWidth * newZoom;
+            ann.height = ann.baseHeight * newZoom;
+            if (ann.baseFontSize) {
+                ann.fontSize = ann.baseFontSize * newZoom;
+            }
+        });
+
+        state.imageAnnotations.forEach(img => {
+            img.x = img.baseX * newZoom;
+            img.y = img.baseY * newZoom;
+            img.width = img.baseWidth * newZoom;
+            img.height = img.baseHeight * newZoom;
+        });
 
         // Clear selection to avoid stale references
         state.selectedAnnotation = null;
@@ -1251,25 +1241,20 @@ function handleMouseDown(e) {
         }
 
         // Check if clicked on an image annotation (check images first - they're on top)
-        // Convert screen coords to base for comparison
-        const baseStartX = screenToBaseValue(state.startX);
-        const baseStartY = screenToBaseValue(state.startY);
-
         const clickedImage = state.imageAnnotations
             .filter(img => img.page === state.currentPage)
             .slice().reverse()
             .find(img =>
-                baseStartX >= img.x &&
-                baseStartX <= img.x + img.width &&
-                baseStartY >= img.y &&
-                baseStartY <= img.y + img.height
+                state.startX >= img.x &&
+                state.startX <= img.x + img.width &&
+                state.startY >= img.y &&
+                state.startY <= img.y + img.height
             );
 
         if (clickedImage) {
             state.draggedImage = clickedImage;
-            // Store offset in base coordinates
-            state.dragOffsetX = baseStartX - clickedImage.x;
-            state.dragOffsetY = baseStartY - clickedImage.y;
+            state.dragOffsetX = state.startX - clickedImage.x;
+            state.dragOffsetY = state.startY - clickedImage.y;
             annotationCanvas.style.cursor = 'grabbing';
             return;
         }
@@ -1279,17 +1264,16 @@ function handleMouseDown(e) {
             .filter(ann => ann.page === state.currentPage)
             .slice().reverse() // Check top-most first
             .find(ann =>
-                baseStartX >= ann.x &&
-                baseStartX <= ann.x + ann.width &&
-                baseStartY >= ann.y &&
-                baseStartY <= ann.y + ann.height
+                state.startX >= ann.x &&
+                state.startX <= ann.x + ann.width &&
+                state.startY >= ann.y &&
+                state.startY <= ann.y + ann.height
             );
 
         if (clickedAnnotation) {
             state.draggedAnnotation = clickedAnnotation;
-            // Store offset in base coordinates
-            state.dragOffsetX = baseStartX - clickedAnnotation.x;
-            state.dragOffsetY = baseStartY - clickedAnnotation.y;
+            state.dragOffsetX = state.startX - clickedAnnotation.x;
+            state.dragOffsetY = state.startY - clickedAnnotation.y;
             annotationCanvas.style.cursor = 'grabbing';
             return;
         }
@@ -1310,11 +1294,9 @@ function handleMouseDown(e) {
     }
 
     if (state.activeTool === 'replace' || state.activeTool === 'add') {
-        // Store in BASE coordinates (divide by zoom)
-        const baseCoords = screenToBase(state.startX, state.startY);
         state.currentAnnotation = {
-            x: baseCoords.x,
-            y: baseCoords.y,
+            x: state.startX,
+            y: state.startY,
             width: 0,
             height: 0,
             page: state.currentPage,
@@ -1325,11 +1307,9 @@ function handleMouseDown(e) {
 
     // Image placement mode
     if (state.activeTool === 'placeImage' && state.pendingImage) {
-        // Store in BASE coordinates
-        const baseCoords = screenToBase(state.startX, state.startY);
         state.currentAnnotation = {
-            x: baseCoords.x,
-            y: baseCoords.y,
+            x: state.startX,
+            y: state.startY,
             width: 0,
             height: 0,
             page: state.currentPage,
@@ -1339,11 +1319,9 @@ function handleMouseDown(e) {
 
     // Remove object mode
     if (state.activeTool === 'removeObject') {
-        // Store in BASE coordinates
-        const baseCoords = screenToBase(state.startX, state.startY);
         state.currentAnnotation = {
-            x: baseCoords.x,
-            y: baseCoords.y,
+            x: state.startX,
+            y: state.startY,
             width: 0,
             height: 0,
             page: state.currentPage,
@@ -1357,39 +1335,35 @@ function handleMouseMove(e) {
     const currentX = (e.clientX - rect.left);
     const currentY = (e.clientY - rect.top);
 
-    // Handle Resizing - use base coordinates
+    // Handle Resizing
     if (state.resizingAnnotation) {
         const ann = state.resizingAnnotation;
         const edge = state.resizeEdge;
-        const minSize = screenToBaseValue(20); // Minimum in base coords
-
-        // Convert screen mouse position to base coordinates
-        const baseCurrentX = screenToBaseValue(currentX);
-        const baseCurrentY = screenToBaseValue(currentY);
+        const minSize = 20; // Minimum width/height
 
         // Calculate new dimensions based on which edge is being dragged
         if (edge.includes('n')) {
-            const newHeight = ann.y + ann.height - baseCurrentY;
+            const newHeight = ann.y + ann.height - currentY;
             if (newHeight >= minSize) {
-                ann.y = baseCurrentY;
+                ann.y = currentY;
                 ann.height = newHeight;
             }
         }
         if (edge.includes('s')) {
-            const newHeight = baseCurrentY - ann.y;
+            const newHeight = currentY - ann.y;
             if (newHeight >= minSize) {
                 ann.height = newHeight;
             }
         }
         if (edge.includes('w')) {
-            const newWidth = ann.x + ann.width - baseCurrentX;
+            const newWidth = ann.x + ann.width - currentX;
             if (newWidth >= minSize) {
-                ann.x = baseCurrentX;
+                ann.x = currentX;
                 ann.width = newWidth;
             }
         }
         if (edge.includes('e')) {
-            const newWidth = baseCurrentX - ann.x;
+            const newWidth = currentX - ann.x;
             if (newWidth >= minSize) {
                 ann.width = newWidth;
             }
@@ -1605,22 +1579,18 @@ function handleMouseMove(e) {
         return;
     }
 
-    // Handle Dragging (text annotations) - use base coordinates
+    // Handle Dragging (text annotations)
     if (state.draggedAnnotation) {
-        const baseCurrentX = screenToBaseValue(currentX);
-        const baseCurrentY = screenToBaseValue(currentY);
-        state.draggedAnnotation.x = baseCurrentX - state.dragOffsetX;
-        state.draggedAnnotation.y = baseCurrentY - state.dragOffsetY;
+        state.draggedAnnotation.x = currentX - state.dragOffsetX;
+        state.draggedAnnotation.y = currentY - state.dragOffsetY;
         redrawAnnotations();
         return;
     }
 
-    // Handle Image Dragging - use base coordinates
+    // Handle Image Dragging
     if (state.draggedImage) {
-        const baseCurrentX = screenToBaseValue(currentX);
-        const baseCurrentY = screenToBaseValue(currentY);
-        state.draggedImage.x = baseCurrentX - state.dragOffsetX;
-        state.draggedImage.y = baseCurrentY - state.dragOffsetY;
+        state.draggedImage.x = currentX - state.dragOffsetX;
+        state.draggedImage.y = currentY - state.dragOffsetY;
         redrawAnnotations();
         return;
     }
@@ -1645,25 +1615,22 @@ function handleMouseMove(e) {
             }
         }
 
-        // Check for hover on any image - convert to base for comparison
-        const baseCurrentX = screenToBaseValue(currentX);
-        const baseCurrentY = screenToBaseValue(currentY);
-
+        // Check for hover on any image
         const hoveringImage = state.imageAnnotations.some(img =>
             img.page === state.currentPage &&
-            baseCurrentX >= img.x &&
-            baseCurrentX <= img.x + img.width &&
-            baseCurrentY >= img.y &&
-            baseCurrentY <= img.y + img.height
+            currentX >= img.x &&
+            currentX <= img.x + img.width &&
+            currentY >= img.y &&
+            currentY <= img.y + img.height
         );
 
         // Check for regular hover on any text annotation
         const hoveringAnnotation = state.annotations.some(ann =>
             ann.page === state.currentPage &&
-            baseCurrentX >= ann.x &&
-            baseCurrentX <= ann.x + ann.width &&
-            baseCurrentY >= ann.y &&
-            baseCurrentY <= ann.y + ann.height
+            currentX >= ann.x &&
+            currentX <= ann.x + ann.width &&
+            currentY >= ann.y &&
+            currentY <= ann.y + ann.height
         );
 
         annotationCanvas.style.cursor = (hoveringImage || hoveringAnnotation) ? 'grab' : 'default';
@@ -1674,26 +1641,19 @@ function handleMouseMove(e) {
 
     // Handle image placement drawing
     if (state.activeTool === 'placeImage' && state.currentAnnotation) {
-        // Width and height in BASE coordinates
-        state.currentAnnotation.width = screenToBaseValue(currentX - state.startX);
-        state.currentAnnotation.height = screenToBaseValue(currentY - state.startY);
+        state.currentAnnotation.width = currentX - state.startX;
+        state.currentAnnotation.height = currentY - state.startY;
 
         redrawAnnotations();
-        // Draw image preview rectangle - convert back to screen coords for drawing
-        const screenCoords = baseToScreen(
-            state.currentAnnotation.x,
-            state.currentAnnotation.y,
-            state.currentAnnotation.width,
-            state.currentAnnotation.height
-        );
+        // Draw image preview rectangle
         annotationCtx.strokeStyle = '#48bb78'; // Green for images
         annotationCtx.lineWidth = 2;
         annotationCtx.setLineDash([5, 5]);
         annotationCtx.strokeRect(
-            screenCoords.x,
-            screenCoords.y,
-            screenCoords.width,
-            screenCoords.height
+            state.currentAnnotation.x,
+            state.currentAnnotation.y,
+            state.currentAnnotation.width,
+            state.currentAnnotation.height
         );
         annotationCtx.setLineDash([]);
         return;
@@ -1701,36 +1661,29 @@ function handleMouseMove(e) {
 
     // Handle removeObject drawing
     if (state.activeTool === 'removeObject' && state.currentAnnotation) {
-        // Width and height in BASE coordinates
-        state.currentAnnotation.width = screenToBaseValue(currentX - state.startX);
-        state.currentAnnotation.height = screenToBaseValue(currentY - state.startY);
+        state.currentAnnotation.width = currentX - state.startX;
+        state.currentAnnotation.height = currentY - state.startY;
 
         redrawAnnotations();
-        // Draw red dashed rectangle for removal - convert to screen coords
-        const screenCoords = baseToScreen(
-            state.currentAnnotation.x,
-            state.currentAnnotation.y,
-            state.currentAnnotation.width,
-            state.currentAnnotation.height
-        );
+        // Draw red dashed rectangle for removal
         annotationCtx.strokeStyle = '#f56565'; // Red for removal
         annotationCtx.lineWidth = 2;
         annotationCtx.setLineDash([5, 5]);
         annotationCtx.strokeRect(
-            screenCoords.x,
-            screenCoords.y,
-            screenCoords.width,
-            screenCoords.height
+            state.currentAnnotation.x,
+            state.currentAnnotation.y,
+            state.currentAnnotation.width,
+            state.currentAnnotation.height
         );
         annotationCtx.setLineDash([]);
 
         // Fill with semi-transparent red
         annotationCtx.fillStyle = 'rgba(245, 101, 101, 0.2)';
         annotationCtx.fillRect(
-            screenCoords.x,
-            screenCoords.y,
-            screenCoords.width,
-            screenCoords.height
+            state.currentAnnotation.x,
+            state.currentAnnotation.y,
+            state.currentAnnotation.width,
+            state.currentAnnotation.height
         );
         return;
     }
@@ -1738,23 +1691,15 @@ function handleMouseMove(e) {
     if (state.activeTool !== 'replace' && state.activeTool !== 'add') return;
     if (!state.currentAnnotation) return;
 
-    // Width and height in BASE coordinates
-    state.currentAnnotation.width = screenToBaseValue(currentX - state.startX);
-    state.currentAnnotation.height = screenToBaseValue(currentY - state.startY);
+    state.currentAnnotation.width = currentX - state.startX;
+    state.currentAnnotation.height = currentY - state.startY;
 
     redrawAnnotations();
-    // Draw dashed rect - convert to screen coords
-    const screenCoords = baseToScreen(
+    drawDashedRect(
         state.currentAnnotation.x,
         state.currentAnnotation.y,
         state.currentAnnotation.width,
         state.currentAnnotation.height
-    );
-    drawDashedRect(
-        screenCoords.x,
-        screenCoords.y,
-        screenCoords.width,
-        screenCoords.height
     );
 }
 
@@ -1766,6 +1711,7 @@ function handleMouseUp(e) {
     // Handle resize end
     if (state.resizingAnnotation) {
         console.log('Resize complete');
+        updateBaseCoordinates(state.resizingAnnotation); // Sync base coords
         state.resizingAnnotation = null;
         state.resizeEdge = null;
         annotationCanvas.style.cursor = 'default';
@@ -1777,6 +1723,7 @@ function handleMouseUp(e) {
     // Handle image resize end
     if (state.resizingImage) {
         console.log('Image resize complete');
+        updateBaseCoordinates(state.resizingImage); // Sync base coords
         state.resizingImage = null;
         state.resizeEdge = null;
         state.originalAspectRatio = null; // Clear aspect ratio
@@ -1787,12 +1734,14 @@ function handleMouseUp(e) {
     }
 
     if (state.draggedAnnotation) {
+        updateBaseCoordinates(state.draggedAnnotation); // Sync base coords
         state.draggedAnnotation = null;
         annotationCanvas.style.cursor = 'grab';
         return;
     }
 
     if (state.draggedImage) {
+        updateBaseCoordinates(state.draggedImage); // Sync base coords
         state.draggedImage = null;
         annotationCanvas.style.cursor = 'grab';
         return;
@@ -1845,6 +1794,9 @@ function handleMouseUp(e) {
                 element: state.pendingImage.element
             };
 
+            // Generate base coords for the new image
+            updateBaseCoordinates(imageAnnotation);
+
             state.imageAnnotations.push(imageAnnotation);
             console.log('Image placed with aspect ratio preserved:', imageAnnotation);
 
@@ -1890,6 +1842,8 @@ function handleMouseUp(e) {
                 height: state.currentAnnotation.height,
                 backgroundColor: backgroundColor
             };
+
+            updateBaseCoordinates(removeAnnotation);
 
             state.annotations.push(removeAnnotation);
             console.log('Object removal created:', removeAnnotation);
@@ -2011,24 +1965,16 @@ function redrawAnnotations() {
     state.annotations
         .filter(ann => ann.page === state.currentPage)
         .forEach(ann => {
-            // Convert base coordinates to screen coordinates for rendering
-            const screen = baseToScreen(ann.x, ann.y, ann.width, ann.height);
-            const sx = screen.x;
-            const sy = screen.y;
-            const sw = screen.width;
-            const sh = screen.height;
-            const screenFontSize = ann.fontSize ? baseToScreenValue(ann.fontSize) : 14 * state.zoom;
-
             // If removeObject mode, fill with detected background color
             if (ann.type === 'removeObject') {
                 annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
-                annotationCtx.fillRect(sx, sy, sw, sh);
+                annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
                 // Only draw border if selected
                 if (state.selectedAnnotation === ann) {
                     annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.5)';
                     annotationCtx.lineWidth = 2;
                     annotationCtx.setLineDash([3, 3]);
-                    annotationCtx.strokeRect(sx, sy, sw, sh);
+                    annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
                     annotationCtx.setLineDash([]);
                 }
                 return; // Don't draw anything else for removeObject
@@ -2037,12 +1983,12 @@ function redrawAnnotations() {
             // If replace mode, draw background first (detected or white fallback)
             if (ann.type === 'replace') {
                 annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
-                annotationCtx.fillRect(sx, sy, sw, sh);
+                annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
             }
 
             // Only draw dashed border if this annotation is selected
             if (state.selectedAnnotation === ann) {
-                drawDashedRect(sx, sy, sw, sh);
+                drawDashedRect(ann.x, ann.y, ann.width, ann.height);
             }
 
             // Draw text if exists
@@ -2050,42 +1996,41 @@ function redrawAnnotations() {
                 const fontWeight = ann.fontWeight !== undefined ? fontWeightLevels[ann.fontWeight]?.css || 'normal' : (ann.bold ? 'bold' : 'normal');
                 const style = ann.italic ? 'italic ' : '';
                 const family = ann.fontFamily || 'Inter';
-                // Use screen-scaled font size
-                const fontSize = screenFontSize;
+                const fontSize = ann.fontSize || 14;
                 const lineHeight = fontSize * 1.4;
                 const textAlign = ann.textAlign || 'left';
-                const padding = 5 * state.zoom;
+                const padding = 5;
 
                 annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
 
-                // Calculate x position based on alignment using screen coordinates
+                // Calculate x position based on alignment (for pixelate we use relative position)
                 let textXRel; // Relative to annotation
                 let textXAbs; // Absolute position
                 if (textAlign === 'center') {
-                    textXRel = sw / 2;
-                    textXAbs = sx + sw / 2;
+                    textXRel = ann.width / 2;
+                    textXAbs = ann.x + ann.width / 2;
                 } else if (textAlign === 'right') {
-                    textXRel = sw - padding;
-                    textXAbs = sx + sw - padding;
+                    textXRel = ann.width - padding;
+                    textXAbs = ann.x + ann.width - padding;
                 } else {
                     textXRel = padding;
-                    textXAbs = sx + padding;
+                    textXAbs = ann.x + padding;
                 }
 
                 // First pass: calculate number of lines for vertical centering (with newline support)
-                const lines = wrapTextWithNewlines(annotationCtx, ann.text, sw - 10 * state.zoom);
+                const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
 
                 // Calculate vertical centering
                 const totalTextHeight = lines.length * lineHeight;
-                const startYRel = (sh - totalTextHeight) / 2 + fontSize;
-                const startYAbs = sy + startYRel;
+                const startYRel = (ann.height - totalTextHeight) / 2 + fontSize;
+                const startYAbs = ann.y + startYRel;
 
                 if (ann.pixelateLevel && ann.pixelateLevel > 0) {
                     // Pixelated text rendering - draw at low resolution then scale up
                     const scale = pixelateLevels[ann.pixelateLevel].scale;
                     const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = Math.ceil(sw * scale);
-                    tempCanvas.height = Math.ceil(sh * scale);
+                    tempCanvas.width = Math.ceil(ann.width * scale);
+                    tempCanvas.height = Math.ceil(ann.height * scale);
                     const tempCtx = tempCanvas.getContext('2d');
 
                     // Disable smoothing for crisp pixels
@@ -2105,7 +2050,7 @@ function redrawAnnotations() {
 
                     // Draw scaled-up pixelated result
                     annotationCtx.imageSmoothingEnabled = false;
-                    annotationCtx.drawImage(tempCanvas, sx, sy, sw, sh);
+                    annotationCtx.drawImage(tempCanvas, ann.x, ann.y, ann.width, ann.height);
                     annotationCtx.imageSmoothingEnabled = true;
                 } else {
                     // Normal text rendering
@@ -2126,24 +2071,17 @@ function redrawAnnotations() {
     state.imageAnnotations
         .filter(img => img.page === state.currentPage)
         .forEach(img => {
-            // Convert base coordinates to screen coordinates for rendering
-            const screenImg = baseToScreen(img.x, img.y, img.width, img.height);
-            const imgSx = screenImg.x;
-            const imgSy = screenImg.y;
-            const imgSw = screenImg.width;
-            const imgSh = screenImg.height;
-
             // Calculate source rectangle (for cropping)
             const srcX = img.cropLeft || 0;
             const srcY = img.cropTop || 0;
             const srcWidth = (img.originalWidth || img.element.naturalWidth) - (img.cropLeft || 0) - (img.cropRight || 0);
             const srcHeight = (img.originalHeight || img.element.naturalHeight) - (img.cropTop || 0) - (img.cropBottom || 0);
 
-            // Draw the image with crop applied - use screen coordinates for destination
+            // Draw the image with crop applied
             annotationCtx.drawImage(
                 img.element,
                 srcX, srcY, srcWidth, srcHeight,  // Source rectangle
-                imgSx, imgSy, imgSw, imgSh  // Destination rectangle (screen coords)
+                img.x, img.y, img.width, img.height  // Destination rectangle
             );
 
             // Draw border - orange for crop mode, green otherwise
@@ -2155,19 +2093,12 @@ function redrawAnnotations() {
                 annotationCtx.lineWidth = 2;
             }
             annotationCtx.setLineDash([]);
-            annotationCtx.strokeRect(imgSx, imgSy, imgSw, imgSh);
+            annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
         });
 
     // Draw resize handles for selected annotation
     if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
         const ann = state.selectedAnnotation;
-        // Convert base to screen coordinates
-        const screenAnn = baseToScreen(ann.x, ann.y, ann.width, ann.height);
-        const sax = screenAnn.x;
-        const say = screenAnn.y;
-        const saw = screenAnn.width;
-        const sah = screenAnn.height;
-
         const handleSize = RESIZE_HANDLE_SIZE;
         const halfHandle = handleSize / 2;
 
@@ -2175,58 +2106,51 @@ function redrawAnnotations() {
         annotationCtx.strokeStyle = '#667eea';
         annotationCtx.lineWidth = 3;
         annotationCtx.setLineDash([]);
-        annotationCtx.strokeRect(sax, say, saw, sah);
+        annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
 
         // Draw resize handles (small squares at corners and edges)
         annotationCtx.fillStyle = '#667eea';
 
         // Corner handles
         // Top-left
-        annotationCtx.fillRect(sax - halfHandle, say - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
         // Top-right
-        annotationCtx.fillRect(sax + saw - halfHandle, say - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
         // Bottom-left
-        annotationCtx.fillRect(sax - halfHandle, say + sah - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
         // Bottom-right
-        annotationCtx.fillRect(sax + saw - halfHandle, say + sah - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
 
         // Edge handles (middle of each edge)
         // Top
-        annotationCtx.fillRect(sax + saw / 2 - halfHandle, say - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
         // Bottom
-        annotationCtx.fillRect(sax + saw / 2 - halfHandle, say + sah - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
         // Left
-        annotationCtx.fillRect(sax - halfHandle, say + sah / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
         // Right
-        annotationCtx.fillRect(sax + saw - halfHandle, say + sah / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
 
         // Add white border to handles for visibility
         annotationCtx.strokeStyle = '#ffffff';
         annotationCtx.lineWidth = 1;
 
         // Corner handle borders
-        annotationCtx.strokeRect(sax - halfHandle, say - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax + saw - halfHandle, say - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax - halfHandle, say + sah - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax + saw - halfHandle, say + sah - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
 
         // Edge handle borders
-        annotationCtx.strokeRect(sax + saw / 2 - halfHandle, say - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax + saw / 2 - halfHandle, say + sah - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax - halfHandle, say + sah / 2 - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(sax + saw - halfHandle, say + sah / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
     }
 
     // Draw resize handles for selected image
     if (state.selectedImage && state.selectedImage.page === state.currentPage) {
         const img = state.selectedImage;
-        // Convert base to screen coordinates
-        const screenImg = baseToScreen(img.x, img.y, img.width, img.height);
-        const six = screenImg.x;
-        const siy = screenImg.y;
-        const siw = screenImg.width;
-        const sih = screenImg.height;
-
         const handleSize = RESIZE_HANDLE_SIZE;
         const halfHandle = handleSize / 2;
 
@@ -2234,46 +2158,46 @@ function redrawAnnotations() {
         annotationCtx.strokeStyle = '#48bb78'; // Green for images
         annotationCtx.lineWidth = 3;
         annotationCtx.setLineDash([]);
-        annotationCtx.strokeRect(six, siy, siw, sih);
+        annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
 
         // Draw resize handles (small squares at corners and edges)
         annotationCtx.fillStyle = '#48bb78';
 
         // Corner handles
         // Top-left
-        annotationCtx.fillRect(six - halfHandle, siy - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
         // Top-right
-        annotationCtx.fillRect(six + siw - halfHandle, siy - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
         // Bottom-left
-        annotationCtx.fillRect(six - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
         // Bottom-right
-        annotationCtx.fillRect(six + siw - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
 
         // Edge handles (middle of each edge)
         // Top
-        annotationCtx.fillRect(six + siw / 2 - halfHandle, siy - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
         // Bottom
-        annotationCtx.fillRect(six + siw / 2 - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
         // Left
-        annotationCtx.fillRect(six - halfHandle, siy + sih / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
         // Right
-        annotationCtx.fillRect(six + siw - halfHandle, siy + sih / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
 
         // Add white border to handles for visibility
         annotationCtx.strokeStyle = '#ffffff';
         annotationCtx.lineWidth = 1;
 
         // Corner handle borders
-        annotationCtx.strokeRect(six - halfHandle, siy - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six + siw - halfHandle, siy - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six + siw - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
 
         // Edge handle borders
-        annotationCtx.strokeRect(six + siw / 2 - halfHandle, siy - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six + siw / 2 - halfHandle, siy + sih - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six - halfHandle, siy + sih / 2 - halfHandle, handleSize, handleSize);
-        annotationCtx.strokeRect(six + siw - halfHandle, siy + sih / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
     }
 
     // Draw guide lines
@@ -2364,9 +2288,14 @@ async function applyText() {
 
     // Add to annotations array or update existing
     if (state.editingIndex !== null) {
+        // When editing, currentAnnotation properties are updated.
+        // We must update base coordinates to match new properties (like fontSize)
+        updateBaseCoordinates(state.currentAnnotation);
         state.annotations[state.editingIndex] = { ...state.currentAnnotation };
         state.editingIndex = null;
     } else {
+        // Create base coordinates for new annotation
+        updateBaseCoordinates(state.currentAnnotation);
         state.annotations.push({ ...state.currentAnnotation });
     }
 
