@@ -1981,9 +1981,10 @@ function detectBackgroundColor(annotation) {
 
 // Drawing Functions
 function drawDashedRect(x, y, width, height) {
+    const scale = state.zoom || 1;
     annotationCtx.strokeStyle = '#667eea';
-    annotationCtx.lineWidth = 2;
-    annotationCtx.setLineDash([5, 5]);
+    annotationCtx.lineWidth = 2 * scale;
+    annotationCtx.setLineDash([5 * scale, 5 * scale]);
     annotationCtx.strokeRect(x, y, width, height);
     annotationCtx.setLineDash([]);
     // No fill - only dashed border
@@ -2007,9 +2008,10 @@ function redrawAnnotations() {
                 annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
                 // Only draw border if selected
                 if (state.selectedAnnotation === ann) {
+                    const scale = state.zoom || 1;
                     annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.5)';
-                    annotationCtx.lineWidth = 2;
-                    annotationCtx.setLineDash([3, 3]);
+                    annotationCtx.lineWidth = 2 * scale;
+                    annotationCtx.setLineDash([3 * scale, 3 * scale]);
                     annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
                     annotationCtx.setLineDash([]);
                 }
@@ -2035,7 +2037,8 @@ function redrawAnnotations() {
                 const fontSize = ann.fontSize || 14;
                 const lineHeight = fontSize * 1.4;
                 const textAlign = ann.textAlign || 'left';
-                const padding = 5;
+                const scale = state.zoom || 1;
+                const padding = 5 * scale;
 
                 annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
 
