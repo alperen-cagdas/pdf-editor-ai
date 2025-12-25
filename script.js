@@ -1110,1299 +1110,1301 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault();
         }
     }
-    // Coordinate Management: NORMALIZED SYSTEM (0.0 - 1.0)
-    // This ensures annotations are "part of the PDF" and independent of zoom/resolution.
-    function ensureNormalizedCoordinates(ann) {
-        const width = annotationCanvas.width;
-        const height = annotationCanvas.height;
+});
 
-        // Safety check ensuring canvas has size
-        if (width === 0 || height === 0) return;
+// Coordinate Management: NORMALIZED SYSTEM (0.0 - 1.0)
+// This ensures annotations are "part of the PDF" and independent of zoom/resolution.
+function ensureNormalizedCoordinates(ann) {
+    const width = annotationCanvas.width;
+    const height = annotationCanvas.height;
 
-        if (ann.nx === undefined) {
-            // CRITICAL: Assume stored coordinates are in BASE (Zoom 1.0) units.
-            // Current canvas width/height are at 'state.zoom'.
-            // We must divide current dimensions by zoom to get base dimensions.
-            const baseWidth = width / state.zoom;
-            const baseHeight = height / state.zoom;
+    // Safety check ensuring canvas has size
+    if (width === 0 || height === 0) return;
 
-            ann.nx = ann.x / baseWidth;
-            ann.ny = ann.y / baseHeight;
-            ann.nw = ann.width / baseWidth;
-            ann.nh = ann.height / baseHeight;
+    if (ann.nx === undefined) {
+        // CRITICAL: Assume stored coordinates are in BASE (Zoom 1.0) units.
+        // Current canvas width/height are at 'state.zoom'.
+        // We must divide current dimensions by zoom to get base dimensions.
+        const baseWidth = width / state.zoom;
+        const baseHeight = height / state.zoom;
 
-            // Font size is relative to HEIGHT for consistency
-            if (ann.fontSize) {
-                ann.nFontSize = ann.fontSize / baseHeight;
-            }
-        }
-    }
+        ann.nx = ann.x / baseWidth;
+        ann.ny = ann.y / baseHeight;
+        ann.nw = ann.width / baseWidth;
+        ann.nh = ann.height / baseHeight;
 
-    function updateNormalizedCoordinates(ann) {
-        const width = annotationCanvas.width;
-        const height = annotationCanvas.height;
-
-        // Safety check
-        if (width === 0 || height === 0) return;
-
-        // Save current pixel position as normalized percentage
-        ann.nx = ann.x / width;
-        ann.ny = ann.y / height;
-        ann.nw = ann.width / width;
-        ann.nh = ann.height / height;
-
+        // Font size is relative to HEIGHT for consistency
         if (ann.fontSize) {
-            ann.nFontSize = ann.fontSize / height;
+            ann.nFontSize = ann.fontSize / baseHeight;
         }
     }
+}
 
-    // Sync Pixel Coordinates from Normalized
-    // Call this before drawing to ensure x/y match current zoom level
-    function syncPixelCoordinates(ann) {
-        const width = annotationCanvas.width;
-        const height = annotationCanvas.height;
+function updateNormalizedCoordinates(ann) {
+    const width = annotationCanvas.width;
+    const height = annotationCanvas.height;
 
-        if (ann.nx !== undefined) {
-            ann.x = ann.nx * width;
-            ann.y = ann.ny * height;
-            ann.width = ann.nw * width;
-            ann.height = ann.nh * height;
+    // Safety check
+    if (width === 0 || height === 0) return;
 
-            if (ann.nFontSize) {
-                ann.fontSize = ann.nFontSize * height;
+    // Save current pixel position as normalized percentage
+    ann.nx = ann.x / width;
+    ann.ny = ann.y / height;
+    ann.nw = ann.width / width;
+    ann.nh = ann.height / height;
+
+    if (ann.fontSize) {
+        ann.nFontSize = ann.fontSize / height;
+    }
+}
+
+// Sync Pixel Coordinates from Normalized
+// Call this before drawing to ensure x/y match current zoom level
+function syncPixelCoordinates(ann) {
+    const width = annotationCanvas.width;
+    const height = annotationCanvas.height;
+
+    if (ann.nx !== undefined) {
+        ann.x = ann.nx * width;
+        ann.y = ann.ny * height;
+        ann.width = ann.nw * width;
+        ann.height = ann.nh * height;
+
+        if (ann.nFontSize) {
+            ann.fontSize = ann.nFontSize * height;
+        }
+    } else {
+        // Migration for old annotations: create normalized coords now
+        ensureNormalizedCoordinates(ann);
+    }
+}
+
+// Zoom Control
+function setZoom(newZoom) {
+    if (newZoom >= 0.1 && newZoom <= 3.0) {
+        // Ensure we have normalized coords before resizing (capture logical position)
+        if (state.annotations) state.annotations.forEach(ensureNormalizedCoordinates);
+        if (state.imageAnnotations) state.imageAnnotations.forEach(ensureNormalizedCoordinates);
+
+        state.zoom = newZoom;
+        zoomLevel.textContent = Math.round(newZoom * 100) + '%';
+
+        // NOTE: We do NOT calculate coordinates here anymore.
+        // renderPage() will resize the canvas -> redrawAnnotations() will sync pixels from normalized coords.
+
+        renderPage(state.currentPage);
+    }
+}
+
+// Page Navigation
+function goToPage(pageNum) {
+    if (pageNum >= 1 && pageNum <= state.totalPages) {
+        state.currentPage = pageNum;
+        renderPage(pageNum);
+        updatePageControls();
+    }
+}
+
+function updatePageControls() {
+    currentPageDisplay.textContent = state.currentPage;
+    totalPagesDisplay.textContent = state.totalPages;
+    prevPageBtn.disabled = state.currentPage === 1;
+    nextPageBtn.disabled = state.currentPage === state.totalPages;
+}
+
+// Tool Selection
+function setActiveTool(tool) {
+    state.activeTool = tool;
+
+    moveTool.classList.toggle('active', tool === 'move');
+    replaceTool.classList.toggle('active', tool === 'replace');
+    addTool.classList.toggle('active', tool === 'add');
+    addImageTool.classList.toggle('active', tool === 'placeImage');
+    removeObjectTool.classList.toggle('active', tool === 'removeObject');
+
+    if (tool === 'move') {
+        annotationCanvas.style.cursor = 'default';
+    } else if (tool === 'placeImage') {
+        annotationCanvas.style.cursor = 'copy';
+    } else {
+        annotationCanvas.style.cursor = 'crosshair';
+    }
+}
+
+// Mouse Event Handlers
+function handleMouseDown(e) {
+    if (!state.pdfDoc) return;
+
+    const rect = annotationCanvas.getBoundingClientRect();
+    state.startX = (e.clientX - rect.left);
+    state.startY = (e.clientY - rect.top);
+    state.isDrawing = true;
+
+    if (state.activeTool === 'move') {
+        // Check if starting to resize selected annotation
+        if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
+            const edge = getResizeEdge(state.startX, state.startY, state.selectedAnnotation);
+            if (edge) {
+                state.resizingAnnotation = state.selectedAnnotation;
+                state.resizeEdge = edge;
+                annotationCanvas.style.cursor = getResizeCursor(edge);
+                console.log('Starting resize from edge:', edge);
+                return;
             }
-        } else {
-            // Migration for old annotations: create normalized coords now
-            ensureNormalizedCoordinates(ann);
+        }
+
+        // Check if starting to resize selected image
+        if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+            const edge = getResizeEdge(state.startX, state.startY, state.selectedImage);
+            if (edge) {
+                state.resizingImage = state.selectedImage;
+                state.resizeEdge = edge;
+                // Store original aspect ratio for proportional resizing
+                state.originalAspectRatio = state.selectedImage.width / state.selectedImage.height;
+                annotationCanvas.style.cursor = getResizeCursor(edge);
+                console.log('Starting image resize from edge:', edge, 'aspect ratio:', state.originalAspectRatio);
+                return;
+            }
+        }
+
+        // Check if clicked on an image annotation (check images first - they're on top)
+        const clickedImage = state.imageAnnotations
+            .filter(img => img.page === state.currentPage)
+            .slice().reverse()
+            .find(img =>
+                state.startX >= img.x &&
+                state.startX <= img.x + img.width &&
+                state.startY >= img.y &&
+                state.startY <= img.y + img.height
+            );
+
+        if (clickedImage) {
+            state.draggedImage = clickedImage;
+            state.dragOffsetX = state.startX - clickedImage.x;
+            state.dragOffsetY = state.startY - clickedImage.y;
+            annotationCanvas.style.cursor = 'grabbing';
+            return;
+        }
+
+        // Check if clicked on an existing text annotation
+        const clickedAnnotation = state.annotations
+            .filter(ann => ann.page === state.currentPage)
+            .slice().reverse() // Check top-most first
+            .find(ann =>
+                state.startX >= ann.x &&
+                state.startX <= ann.x + ann.width &&
+                state.startY >= ann.y &&
+                state.startY <= ann.y + ann.height
+            );
+
+        if (clickedAnnotation) {
+            state.draggedAnnotation = clickedAnnotation;
+            state.dragOffsetX = state.startX - clickedAnnotation.x;
+            state.dragOffsetY = state.startY - clickedAnnotation.y;
+            annotationCanvas.style.cursor = 'grabbing';
+            return;
+        }
+
+        // Check if clicked on a guide line
+        const clickedGuide = getGuideAtPoint(state.startX, state.startY);
+        if (clickedGuide) {
+            guideLines.selectedGuide = clickedGuide;
+            redrawAnnotations();
+            return;
+        }
+
+        // Clear guide selection if clicked elsewhere
+        if (guideLines.selectedGuide) {
+            guideLines.selectedGuide = null;
+            redrawAnnotations();
         }
     }
 
-    // Zoom Control
-    function setZoom(newZoom) {
-        if (newZoom >= 0.1 && newZoom <= 3.0) {
-            // Ensure we have normalized coords before resizing (capture logical position)
-            if (state.annotations) state.annotations.forEach(ensureNormalizedCoordinates);
-            if (state.imageAnnotations) state.imageAnnotations.forEach(ensureNormalizedCoordinates);
+    if (state.activeTool === 'replace' || state.activeTool === 'add') {
+        state.currentAnnotation = {
+            x: state.startX,
+            y: state.startY,
+            width: 0,
+            height: 0,
+            page: state.currentPage,
+            text: '',
+            type: state.activeTool // 'replace' or 'add'
+        };
+    }
 
-            state.zoom = newZoom;
-            zoomLevel.textContent = Math.round(newZoom * 100) + '%';
+    // Image placement mode
+    if (state.activeTool === 'placeImage' && state.pendingImage) {
+        state.currentAnnotation = {
+            x: state.startX,
+            y: state.startY,
+            width: 0,
+            height: 0,
+            page: state.currentPage,
+            type: 'image'
+        };
+    }
 
-            // NOTE: We do NOT calculate coordinates here anymore.
-            // renderPage() will resize the canvas -> redrawAnnotations() will sync pixels from normalized coords.
+    // Remove object mode
+    if (state.activeTool === 'removeObject') {
+        state.currentAnnotation = {
+            x: state.startX,
+            y: state.startY,
+            width: 0,
+            height: 0,
+            page: state.currentPage,
+            type: 'removeObject'
+        };
+    }
+}
 
-            renderPage(state.currentPage);
+function handleMouseMove(e) {
+    const rect = annotationCanvas.getBoundingClientRect();
+    const currentX = (e.clientX - rect.left);
+    const currentY = (e.clientY - rect.top);
+
+    // Handle Resizing
+    if (state.resizingAnnotation) {
+        const ann = state.resizingAnnotation;
+        const edge = state.resizeEdge;
+        const minSize = 20; // Minimum width/height
+
+        // Calculate new dimensions based on which edge is being dragged
+        if (edge.includes('n')) {
+            const newHeight = ann.y + ann.height - currentY;
+            if (newHeight >= minSize) {
+                ann.y = currentY;
+                ann.height = newHeight;
+            }
         }
-    }
-
-    // Page Navigation
-    function goToPage(pageNum) {
-        if (pageNum >= 1 && pageNum <= state.totalPages) {
-            state.currentPage = pageNum;
-            renderPage(pageNum);
-            updatePageControls();
+        if (edge.includes('s')) {
+            const newHeight = currentY - ann.y;
+            if (newHeight >= minSize) {
+                ann.height = newHeight;
+            }
         }
-    }
-
-    function updatePageControls() {
-        currentPageDisplay.textContent = state.currentPage;
-        totalPagesDisplay.textContent = state.totalPages;
-        prevPageBtn.disabled = state.currentPage === 1;
-        nextPageBtn.disabled = state.currentPage === state.totalPages;
-    }
-
-    // Tool Selection
-    function setActiveTool(tool) {
-        state.activeTool = tool;
-
-        moveTool.classList.toggle('active', tool === 'move');
-        replaceTool.classList.toggle('active', tool === 'replace');
-        addTool.classList.toggle('active', tool === 'add');
-        addImageTool.classList.toggle('active', tool === 'placeImage');
-        removeObjectTool.classList.toggle('active', tool === 'removeObject');
-
-        if (tool === 'move') {
-            annotationCanvas.style.cursor = 'default';
-        } else if (tool === 'placeImage') {
-            annotationCanvas.style.cursor = 'copy';
-        } else {
-            annotationCanvas.style.cursor = 'crosshair';
+        if (edge.includes('w')) {
+            const newWidth = ann.x + ann.width - currentX;
+            if (newWidth >= minSize) {
+                ann.x = currentX;
+                ann.width = newWidth;
+            }
         }
+        if (edge.includes('e')) {
+            const newWidth = currentX - ann.x;
+            if (newWidth >= minSize) {
+                ann.width = newWidth;
+            }
+        }
+
+        redrawAnnotations();
+        return;
     }
 
-    // Mouse Event Handlers
-    function handleMouseDown(e) {
-        if (!state.pdfDoc) return;
+    // Handle Image Resizing
+    if (state.resizingImage) {
+        const img = state.resizingImage;
+        const edge = state.resizeEdge;
+        const minSize = 20; // Minimum width/height
 
-        const rect = annotationCanvas.getBoundingClientRect();
-        state.startX = (e.clientX - rect.left);
-        state.startY = (e.clientY - rect.top);
-        state.isDrawing = true;
+        if (state.croppingImage === img) {
+            // Masking/Framing Crop Mode
+            const originalWidth = img.originalWidth || img.element.naturalWidth;
+            const originalHeight = img.originalHeight || img.element.naturalHeight;
 
-        if (state.activeTool === 'move') {
-            // Check if starting to resize selected annotation
-            if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
-                const edge = getResizeEdge(state.startX, state.startY, state.selectedAnnotation);
-                if (edge) {
-                    state.resizingAnnotation = state.selectedAnnotation;
-                    state.resizeEdge = edge;
-                    annotationCanvas.style.cursor = getResizeCursor(edge);
-                    console.log('Starting resize from edge:', edge);
-                    return;
+            // Initialize crop values if needed
+            if (img.cropLeft === undefined) img.cropLeft = 0;
+            if (img.cropTop === undefined) img.cropTop = 0;
+            if (img.cropRight === undefined) img.cropRight = 0;
+            if (img.cropBottom === undefined) img.cropBottom = 0;
+
+            // Calculate current scale (screen pixels per image pixel) - CONSTANT DURING CROP
+            const currentVisibleWidth = originalWidth - img.cropLeft - img.cropRight;
+            const currentVisibleHeight = originalHeight - img.cropTop - img.cropBottom;
+
+            // Protect against zero division
+            const scaleX = currentVisibleWidth > 0 ? img.width / currentVisibleWidth : 1;
+            const scaleY = currentVisibleHeight > 0 ? img.height / currentVisibleHeight : 1;
+
+            const minVisibleRaw = 10 / scaleX; // Minimum 10px visible on screen converted to image pixels logic or just screen check
+
+            if (edge.includes('w')) {
+                // Dragging Left Handle: Changes x, width, and cropLeft
+                const deltaX = currentX - img.x;
+                const newWidth = img.width - deltaX;
+
+                if (newWidth >= 20) { // Min screen width
+                    const newVisibleImageWidth = newWidth / scaleX;
+                    const newCropLeft = originalWidth - img.cropRight - newVisibleImageWidth;
+
+                    if (newCropLeft >= 0) {
+                        img.x = currentX;
+                        img.width = newWidth;
+                        img.cropLeft = newCropLeft;
+                    }
+                }
+            }
+            else if (edge.includes('e')) {
+                // Dragging Right Handle: Changes width and cropRight
+                const deltaX = currentX - (img.x + img.width);
+                const newWidth = img.width + deltaX;
+
+                if (newWidth >= 20) {
+                    const newVisibleImageWidth = newWidth / scaleX;
+                    const newCropRight = originalWidth - img.cropLeft - newVisibleImageWidth;
+
+                    if (newCropRight >= 0) {
+                        img.width = newWidth;
+                        img.cropRight = newCropRight;
+                    }
                 }
             }
 
-            // Check if starting to resize selected image
-            if (state.selectedImage && state.selectedImage.page === state.currentPage) {
-                const edge = getResizeEdge(state.startX, state.startY, state.selectedImage);
-                if (edge) {
-                    state.resizingImage = state.selectedImage;
-                    state.resizeEdge = edge;
-                    // Store original aspect ratio for proportional resizing
-                    state.originalAspectRatio = state.selectedImage.width / state.selectedImage.height;
-                    annotationCanvas.style.cursor = getResizeCursor(edge);
-                    console.log('Starting image resize from edge:', edge, 'aspect ratio:', state.originalAspectRatio);
-                    return;
-                }
-            }
-
-            // Check if clicked on an image annotation (check images first - they're on top)
-            const clickedImage = state.imageAnnotations
-                .filter(img => img.page === state.currentPage)
-                .slice().reverse()
-                .find(img =>
-                    state.startX >= img.x &&
-                    state.startX <= img.x + img.width &&
-                    state.startY >= img.y &&
-                    state.startY <= img.y + img.height
-                );
-
-            if (clickedImage) {
-                state.draggedImage = clickedImage;
-                state.dragOffsetX = state.startX - clickedImage.x;
-                state.dragOffsetY = state.startY - clickedImage.y;
-                annotationCanvas.style.cursor = 'grabbing';
-                return;
-            }
-
-            // Check if clicked on an existing text annotation
-            const clickedAnnotation = state.annotations
-                .filter(ann => ann.page === state.currentPage)
-                .slice().reverse() // Check top-most first
-                .find(ann =>
-                    state.startX >= ann.x &&
-                    state.startX <= ann.x + ann.width &&
-                    state.startY >= ann.y &&
-                    state.startY <= ann.y + ann.height
-                );
-
-            if (clickedAnnotation) {
-                state.draggedAnnotation = clickedAnnotation;
-                state.dragOffsetX = state.startX - clickedAnnotation.x;
-                state.dragOffsetY = state.startY - clickedAnnotation.y;
-                annotationCanvas.style.cursor = 'grabbing';
-                return;
-            }
-
-            // Check if clicked on a guide line
-            const clickedGuide = getGuideAtPoint(state.startX, state.startY);
-            if (clickedGuide) {
-                guideLines.selectedGuide = clickedGuide;
-                redrawAnnotations();
-                return;
-            }
-
-            // Clear guide selection if clicked elsewhere
-            if (guideLines.selectedGuide) {
-                guideLines.selectedGuide = null;
-                redrawAnnotations();
-            }
-        }
-
-        if (state.activeTool === 'replace' || state.activeTool === 'add') {
-            state.currentAnnotation = {
-                x: state.startX,
-                y: state.startY,
-                width: 0,
-                height: 0,
-                page: state.currentPage,
-                text: '',
-                type: state.activeTool // 'replace' or 'add'
-            };
-        }
-
-        // Image placement mode
-        if (state.activeTool === 'placeImage' && state.pendingImage) {
-            state.currentAnnotation = {
-                x: state.startX,
-                y: state.startY,
-                width: 0,
-                height: 0,
-                page: state.currentPage,
-                type: 'image'
-            };
-        }
-
-        // Remove object mode
-        if (state.activeTool === 'removeObject') {
-            state.currentAnnotation = {
-                x: state.startX,
-                y: state.startY,
-                width: 0,
-                height: 0,
-                page: state.currentPage,
-                type: 'removeObject'
-            };
-        }
-    }
-
-    function handleMouseMove(e) {
-        const rect = annotationCanvas.getBoundingClientRect();
-        const currentX = (e.clientX - rect.left);
-        const currentY = (e.clientY - rect.top);
-
-        // Handle Resizing
-        if (state.resizingAnnotation) {
-            const ann = state.resizingAnnotation;
-            const edge = state.resizeEdge;
-            const minSize = 20; // Minimum width/height
-
-            // Calculate new dimensions based on which edge is being dragged
             if (edge.includes('n')) {
-                const newHeight = ann.y + ann.height - currentY;
+                // Dragging Top Handle: Changes y, height, and cropTop
+                const deltaY = currentY - img.y;
+                const newHeight = img.height - deltaY;
+
+                if (newHeight >= 20) {
+                    const newVisibleImageHeight = newHeight / scaleY;
+                    const newCropTop = originalHeight - img.cropBottom - newVisibleImageHeight;
+
+                    if (newCropTop >= 0) {
+                        img.y = currentY;
+                        img.height = newHeight;
+                        img.cropTop = newCropTop;
+                    }
+                }
+            }
+            else if (edge.includes('s')) {
+                // Dragging Bottom Handle: Changes height and cropBottom
+                const deltaY = currentY - (img.y + img.height);
+                const newHeight = img.height + deltaY;
+
+                if (newHeight >= 20) {
+                    const newVisibleImageHeight = newHeight / scaleY;
+                    const newCropBottom = originalHeight - img.cropTop - newVisibleImageHeight;
+
+                    if (newCropBottom >= 0) {
+                        img.height = newHeight;
+                        img.cropBottom = newCropBottom;
+                    }
+                }
+            }
+
+            redrawAnnotations();
+            return;
+        }
+
+        // Check if it's a corner (diagonal) resize - maintain aspect ratio
+        const isCorner = (edge === 'nw' || edge === 'ne' || edge === 'sw' || edge === 'se');
+
+        if (isCorner && state.originalAspectRatio) {
+            // Maintain aspect ratio for corner resizing
+            const aspectRatio = state.originalAspectRatio;
+
+            if (edge === 'se') {
+                // Bottom-right corner - resize from fixed top-left
+                const deltaX = currentX - img.x;
+                const deltaY = currentY - img.y;
+
+                // Use the larger delta to determine new size
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                }
+            } else if (edge === 'nw') {
+                // Top-left corner - resize from fixed bottom-right
+                const rightX = img.x + img.width;
+                const bottomY = img.y + img.height;
+                const deltaX = rightX - currentX;
+                const deltaY = bottomY - currentY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.x = rightX - newWidth;
+                    img.y = bottomY - img.height;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.x = rightX - img.width;
+                    img.y = bottomY - newHeight;
+                }
+            } else if (edge === 'ne') {
+                // Top-right corner - resize from fixed bottom-left
+                const bottomY = img.y + img.height;
+                const deltaX = currentX - img.x;
+                const deltaY = bottomY - currentY;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.y = bottomY - img.height;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.y = bottomY - newHeight;
+                }
+            } else if (edge === 'sw') {
+                // Bottom-left corner - resize from fixed top-right
+                const rightX = img.x + img.width;
+                const deltaX = rightX - currentX;
+                const deltaY = currentY - img.y;
+
+                if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
+                    const newWidth = Math.max(minSize, deltaX);
+                    img.width = newWidth;
+                    img.height = newWidth / aspectRatio;
+                    img.x = rightX - newWidth;
+                } else {
+                    const newHeight = Math.max(minSize, deltaY);
+                    img.height = newHeight;
+                    img.width = newHeight * aspectRatio;
+                    img.x = rightX - img.width;
+                }
+            }
+        } else {
+            // Free resize for edge handles (n, s, e, w)
+            if (edge.includes('n')) {
+                const newHeight = img.y + img.height - currentY;
                 if (newHeight >= minSize) {
-                    ann.y = currentY;
-                    ann.height = newHeight;
+                    img.y = currentY;
+                    img.height = newHeight;
                 }
             }
             if (edge.includes('s')) {
-                const newHeight = currentY - ann.y;
+                const newHeight = currentY - img.y;
                 if (newHeight >= minSize) {
-                    ann.height = newHeight;
+                    img.height = newHeight;
                 }
             }
             if (edge.includes('w')) {
-                const newWidth = ann.x + ann.width - currentX;
+                const newWidth = img.x + img.width - currentX;
                 if (newWidth >= minSize) {
-                    ann.x = currentX;
-                    ann.width = newWidth;
+                    img.x = currentX;
+                    img.width = newWidth;
                 }
             }
             if (edge.includes('e')) {
-                const newWidth = currentX - ann.x;
+                const newWidth = currentX - img.x;
                 if (newWidth >= minSize) {
-                    ann.width = newWidth;
+                    img.width = newWidth;
                 }
             }
-
-            redrawAnnotations();
-            return;
         }
 
-        // Handle Image Resizing
-        if (state.resizingImage) {
-            const img = state.resizingImage;
-            const edge = state.resizeEdge;
-            const minSize = 20; // Minimum width/height
+        redrawAnnotations();
+        return;
+    }
 
-            if (state.croppingImage === img) {
-                // Masking/Framing Crop Mode
-                const originalWidth = img.originalWidth || img.element.naturalWidth;
-                const originalHeight = img.originalHeight || img.element.naturalHeight;
+    // Handle Dragging (text annotations)
+    if (state.draggedAnnotation) {
+        state.draggedAnnotation.x = currentX - state.dragOffsetX;
+        state.draggedAnnotation.y = currentY - state.dragOffsetY;
+        redrawAnnotations();
+        return;
+    }
 
-                // Initialize crop values if needed
-                if (img.cropLeft === undefined) img.cropLeft = 0;
-                if (img.cropTop === undefined) img.cropTop = 0;
-                if (img.cropRight === undefined) img.cropRight = 0;
-                if (img.cropBottom === undefined) img.cropBottom = 0;
+    // Handle Image Dragging
+    if (state.draggedImage) {
+        state.draggedImage.x = currentX - state.dragOffsetX;
+        state.draggedImage.y = currentY - state.dragOffsetY;
+        redrawAnnotations();
+        return;
+    }
 
-                // Calculate current scale (screen pixels per image pixel) - CONSTANT DURING CROP
-                const currentVisibleWidth = originalWidth - img.cropLeft - img.cropRight;
-                const currentVisibleHeight = originalHeight - img.cropTop - img.cropBottom;
-
-                // Protect against zero division
-                const scaleX = currentVisibleWidth > 0 ? img.width / currentVisibleWidth : 1;
-                const scaleY = currentVisibleHeight > 0 ? img.height / currentVisibleHeight : 1;
-
-                const minVisibleRaw = 10 / scaleX; // Minimum 10px visible on screen converted to image pixels logic or just screen check
-
-                if (edge.includes('w')) {
-                    // Dragging Left Handle: Changes x, width, and cropLeft
-                    const deltaX = currentX - img.x;
-                    const newWidth = img.width - deltaX;
-
-                    if (newWidth >= 20) { // Min screen width
-                        const newVisibleImageWidth = newWidth / scaleX;
-                        const newCropLeft = originalWidth - img.cropRight - newVisibleImageWidth;
-
-                        if (newCropLeft >= 0) {
-                            img.x = currentX;
-                            img.width = newWidth;
-                            img.cropLeft = newCropLeft;
-                        }
-                    }
-                }
-                else if (edge.includes('e')) {
-                    // Dragging Right Handle: Changes width and cropRight
-                    const deltaX = currentX - (img.x + img.width);
-                    const newWidth = img.width + deltaX;
-
-                    if (newWidth >= 20) {
-                        const newVisibleImageWidth = newWidth / scaleX;
-                        const newCropRight = originalWidth - img.cropLeft - newVisibleImageWidth;
-
-                        if (newCropRight >= 0) {
-                            img.width = newWidth;
-                            img.cropRight = newCropRight;
-                        }
-                    }
-                }
-
-                if (edge.includes('n')) {
-                    // Dragging Top Handle: Changes y, height, and cropTop
-                    const deltaY = currentY - img.y;
-                    const newHeight = img.height - deltaY;
-
-                    if (newHeight >= 20) {
-                        const newVisibleImageHeight = newHeight / scaleY;
-                        const newCropTop = originalHeight - img.cropBottom - newVisibleImageHeight;
-
-                        if (newCropTop >= 0) {
-                            img.y = currentY;
-                            img.height = newHeight;
-                            img.cropTop = newCropTop;
-                        }
-                    }
-                }
-                else if (edge.includes('s')) {
-                    // Dragging Bottom Handle: Changes height and cropBottom
-                    const deltaY = currentY - (img.y + img.height);
-                    const newHeight = img.height + deltaY;
-
-                    if (newHeight >= 20) {
-                        const newVisibleImageHeight = newHeight / scaleY;
-                        const newCropBottom = originalHeight - img.cropTop - newVisibleImageHeight;
-
-                        if (newCropBottom >= 0) {
-                            img.height = newHeight;
-                            img.cropBottom = newCropBottom;
-                        }
-                    }
-                }
-
-                redrawAnnotations();
+    // Hover effect for move tool - show resize cursors when hovering edges of selected annotation/image
+    if (state.activeTool === 'move' && !state.draggedAnnotation && !state.draggedImage && !state.resizingAnnotation && !state.resizingImage) {
+        // Check resize cursor for selected annotation
+        if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
+            const edge = getResizeEdge(currentX, currentY, state.selectedAnnotation);
+            if (edge) {
+                annotationCanvas.style.cursor = getResizeCursor(edge);
                 return;
             }
+        }
 
-            // Check if it's a corner (diagonal) resize - maintain aspect ratio
-            const isCorner = (edge === 'nw' || edge === 'ne' || edge === 'sw' || edge === 'se');
-
-            if (isCorner && state.originalAspectRatio) {
-                // Maintain aspect ratio for corner resizing
-                const aspectRatio = state.originalAspectRatio;
-
-                if (edge === 'se') {
-                    // Bottom-right corner - resize from fixed top-left
-                    const deltaX = currentX - img.x;
-                    const deltaY = currentY - img.y;
-
-                    // Use the larger delta to determine new size
-                    if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
-                        const newWidth = Math.max(minSize, deltaX);
-                        img.width = newWidth;
-                        img.height = newWidth / aspectRatio;
-                    } else {
-                        const newHeight = Math.max(minSize, deltaY);
-                        img.height = newHeight;
-                        img.width = newHeight * aspectRatio;
-                    }
-                } else if (edge === 'nw') {
-                    // Top-left corner - resize from fixed bottom-right
-                    const rightX = img.x + img.width;
-                    const bottomY = img.y + img.height;
-                    const deltaX = rightX - currentX;
-                    const deltaY = bottomY - currentY;
-
-                    if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
-                        const newWidth = Math.max(minSize, deltaX);
-                        img.width = newWidth;
-                        img.height = newWidth / aspectRatio;
-                        img.x = rightX - newWidth;
-                        img.y = bottomY - img.height;
-                    } else {
-                        const newHeight = Math.max(minSize, deltaY);
-                        img.height = newHeight;
-                        img.width = newHeight * aspectRatio;
-                        img.x = rightX - img.width;
-                        img.y = bottomY - newHeight;
-                    }
-                } else if (edge === 'ne') {
-                    // Top-right corner - resize from fixed bottom-left
-                    const bottomY = img.y + img.height;
-                    const deltaX = currentX - img.x;
-                    const deltaY = bottomY - currentY;
-
-                    if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
-                        const newWidth = Math.max(minSize, deltaX);
-                        img.width = newWidth;
-                        img.height = newWidth / aspectRatio;
-                        img.y = bottomY - img.height;
-                    } else {
-                        const newHeight = Math.max(minSize, deltaY);
-                        img.height = newHeight;
-                        img.width = newHeight * aspectRatio;
-                        img.y = bottomY - newHeight;
-                    }
-                } else if (edge === 'sw') {
-                    // Bottom-left corner - resize from fixed top-right
-                    const rightX = img.x + img.width;
-                    const deltaX = rightX - currentX;
-                    const deltaY = currentY - img.y;
-
-                    if (Math.abs(deltaX) > Math.abs(deltaY * aspectRatio)) {
-                        const newWidth = Math.max(minSize, deltaX);
-                        img.width = newWidth;
-                        img.height = newWidth / aspectRatio;
-                        img.x = rightX - newWidth;
-                    } else {
-                        const newHeight = Math.max(minSize, deltaY);
-                        img.height = newHeight;
-                        img.width = newHeight * aspectRatio;
-                        img.x = rightX - img.width;
-                    }
-                }
-            } else {
-                // Free resize for edge handles (n, s, e, w)
-                if (edge.includes('n')) {
-                    const newHeight = img.y + img.height - currentY;
-                    if (newHeight >= minSize) {
-                        img.y = currentY;
-                        img.height = newHeight;
-                    }
-                }
-                if (edge.includes('s')) {
-                    const newHeight = currentY - img.y;
-                    if (newHeight >= minSize) {
-                        img.height = newHeight;
-                    }
-                }
-                if (edge.includes('w')) {
-                    const newWidth = img.x + img.width - currentX;
-                    if (newWidth >= minSize) {
-                        img.x = currentX;
-                        img.width = newWidth;
-                    }
-                }
-                if (edge.includes('e')) {
-                    const newWidth = currentX - img.x;
-                    if (newWidth >= minSize) {
-                        img.width = newWidth;
-                    }
-                }
+        // Check resize cursor for selected image
+        if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+            const edge = getResizeEdge(currentX, currentY, state.selectedImage);
+            if (edge) {
+                annotationCanvas.style.cursor = getResizeCursor(edge);
+                return;
             }
-
-            redrawAnnotations();
-            return;
         }
 
-        // Handle Dragging (text annotations)
-        if (state.draggedAnnotation) {
-            state.draggedAnnotation.x = currentX - state.dragOffsetX;
-            state.draggedAnnotation.y = currentY - state.dragOffsetY;
-            redrawAnnotations();
-            return;
-        }
+        // Check for hover on any image
+        const hoveringImage = state.imageAnnotations.some(img =>
+            img.page === state.currentPage &&
+            currentX >= img.x &&
+            currentX <= img.x + img.width &&
+            currentY >= img.y &&
+            currentY <= img.y + img.height
+        );
 
-        // Handle Image Dragging
-        if (state.draggedImage) {
-            state.draggedImage.x = currentX - state.dragOffsetX;
-            state.draggedImage.y = currentY - state.dragOffsetY;
-            redrawAnnotations();
-            return;
-        }
+        // Check for regular hover on any text annotation
+        const hoveringAnnotation = state.annotations.some(ann =>
+            ann.page === state.currentPage &&
+            currentX >= ann.x &&
+            currentX <= ann.x + ann.width &&
+            currentY >= ann.y &&
+            currentY <= ann.y + ann.height
+        );
 
-        // Hover effect for move tool - show resize cursors when hovering edges of selected annotation/image
-        if (state.activeTool === 'move' && !state.draggedAnnotation && !state.draggedImage && !state.resizingAnnotation && !state.resizingImage) {
-            // Check resize cursor for selected annotation
-            if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
-                const edge = getResizeEdge(currentX, currentY, state.selectedAnnotation);
-                if (edge) {
-                    annotationCanvas.style.cursor = getResizeCursor(edge);
-                    return;
-                }
-            }
+        annotationCanvas.style.cursor = (hoveringImage || hoveringAnnotation) ? 'grab' : 'default';
+        return;
+    }
 
-            // Check resize cursor for selected image
-            if (state.selectedImage && state.selectedImage.page === state.currentPage) {
-                const edge = getResizeEdge(currentX, currentY, state.selectedImage);
-                if (edge) {
-                    annotationCanvas.style.cursor = getResizeCursor(edge);
-                    return;
-                }
-            }
+    if (!state.isDrawing) return;
 
-            // Check for hover on any image
-            const hoveringImage = state.imageAnnotations.some(img =>
-                img.page === state.currentPage &&
-                currentX >= img.x &&
-                currentX <= img.x + img.width &&
-                currentY >= img.y &&
-                currentY <= img.y + img.height
-            );
-
-            // Check for regular hover on any text annotation
-            const hoveringAnnotation = state.annotations.some(ann =>
-                ann.page === state.currentPage &&
-                currentX >= ann.x &&
-                currentX <= ann.x + ann.width &&
-                currentY >= ann.y &&
-                currentY <= ann.y + ann.height
-            );
-
-            annotationCanvas.style.cursor = (hoveringImage || hoveringAnnotation) ? 'grab' : 'default';
-            return;
-        }
-
-        if (!state.isDrawing) return;
-
-        // Handle image placement drawing
-        if (state.activeTool === 'placeImage' && state.currentAnnotation) {
-            state.currentAnnotation.width = currentX - state.startX;
-            state.currentAnnotation.height = currentY - state.startY;
-
-            redrawAnnotations();
-            // Draw image preview rectangle
-            annotationCtx.strokeStyle = '#48bb78'; // Green for images
-            annotationCtx.lineWidth = 2;
-            annotationCtx.setLineDash([5, 5]);
-            annotationCtx.strokeRect(
-                state.currentAnnotation.x,
-                state.currentAnnotation.y,
-                state.currentAnnotation.width,
-                state.currentAnnotation.height
-            );
-            annotationCtx.setLineDash([]);
-            return;
-        }
-
-        // Handle removeObject drawing
-        if (state.activeTool === 'removeObject' && state.currentAnnotation) {
-            state.currentAnnotation.width = currentX - state.startX;
-            state.currentAnnotation.height = currentY - state.startY;
-
-            redrawAnnotations();
-            // Draw red dashed rectangle for removal
-            annotationCtx.strokeStyle = '#f56565'; // Red for removal
-            annotationCtx.lineWidth = 2;
-            annotationCtx.setLineDash([5, 5]);
-            annotationCtx.strokeRect(
-                state.currentAnnotation.x,
-                state.currentAnnotation.y,
-                state.currentAnnotation.width,
-                state.currentAnnotation.height
-            );
-            annotationCtx.setLineDash([]);
-
-            // Fill with semi-transparent red
-            annotationCtx.fillStyle = 'rgba(245, 101, 101, 0.2)';
-            annotationCtx.fillRect(
-                state.currentAnnotation.x,
-                state.currentAnnotation.y,
-                state.currentAnnotation.width,
-                state.currentAnnotation.height
-            );
-            return;
-        }
-
-        if (state.activeTool !== 'replace' && state.activeTool !== 'add') return;
-        if (!state.currentAnnotation) return;
-
+    // Handle image placement drawing
+    if (state.activeTool === 'placeImage' && state.currentAnnotation) {
         state.currentAnnotation.width = currentX - state.startX;
         state.currentAnnotation.height = currentY - state.startY;
 
         redrawAnnotations();
-        drawDashedRect(
+        // Draw image preview rectangle
+        annotationCtx.strokeStyle = '#48bb78'; // Green for images
+        annotationCtx.lineWidth = 2;
+        annotationCtx.setLineDash([5, 5]);
+        annotationCtx.strokeRect(
             state.currentAnnotation.x,
             state.currentAnnotation.y,
             state.currentAnnotation.width,
             state.currentAnnotation.height
         );
+        annotationCtx.setLineDash([]);
+        return;
     }
 
-    function handleMouseUp(e) {
-        if (!state.isDrawing) return;
+    // Handle removeObject drawing
+    if (state.activeTool === 'removeObject' && state.currentAnnotation) {
+        state.currentAnnotation.width = currentX - state.startX;
+        state.currentAnnotation.height = currentY - state.startY;
 
-        state.isDrawing = false;
-
-        // Handle resize end
-        if (state.resizingAnnotation) {
-            console.log('Resize complete');
-            updateNormalizedCoordinates(state.resizingAnnotation); // Sync base coords
-            state.resizingAnnotation = null;
-            state.resizeEdge = null;
-            annotationCanvas.style.cursor = 'default';
-            redrawAnnotations();
-            updateAnnotationsList();
-            return;
-        }
-
-        // Handle image resize end
-        if (state.resizingImage) {
-            console.log('Image resize complete');
-            updateNormalizedCoordinates(state.resizingImage); // Sync base coords
-            state.resizingImage = null;
-            state.resizeEdge = null;
-            state.originalAspectRatio = null; // Clear aspect ratio
-            annotationCanvas.style.cursor = 'default';
-            redrawAnnotations();
-            updateAnnotationsList();
-            return;
-        }
-
-        if (state.draggedAnnotation) {
-            updateNormalizedCoordinates(state.draggedAnnotation); // Sync base coords
-            state.draggedAnnotation = null;
-            annotationCanvas.style.cursor = 'grab';
-            return;
-        }
-
-        if (state.draggedImage) {
-            updateNormalizedCoordinates(state.draggedImage); // Sync base coords
-            state.draggedImage = null;
-            annotationCanvas.style.cursor = 'grab';
-            return;
-        }
-
-        // Handle image placement
-        if (state.activeTool === 'placeImage' && state.pendingImage && state.currentAnnotation) {
-            // Normalize dimensions
-            if (state.currentAnnotation.width < 0) {
-                state.currentAnnotation.x += state.currentAnnotation.width;
-                state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
-            }
-            if (state.currentAnnotation.height < 0) {
-                state.currentAnnotation.y += state.currentAnnotation.height;
-                state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
-            }
-
-            // Only add if area is significant
-            if (state.currentAnnotation.width > 20 && state.currentAnnotation.height > 20) {
-                // Calculate fitting dimensions while maintaining aspect ratio
-                const imgAspect = state.pendingImage.width / state.pendingImage.height;
-                const boxAspect = state.currentAnnotation.width / state.currentAnnotation.height;
-
-                let finalWidth, finalHeight, finalX, finalY;
-
-                if (imgAspect > boxAspect) {
-                    // Image is wider - fit to width
-                    finalWidth = state.currentAnnotation.width;
-                    finalHeight = state.currentAnnotation.width / imgAspect;
-                    finalX = state.currentAnnotation.x;
-                    finalY = state.currentAnnotation.y + (state.currentAnnotation.height - finalHeight) / 2;
-                } else {
-                    // Image is taller - fit to height
-                    finalHeight = state.currentAnnotation.height;
-                    finalWidth = state.currentAnnotation.height * imgAspect;
-                    finalX = state.currentAnnotation.x + (state.currentAnnotation.width - finalWidth) / 2;
-                    finalY = state.currentAnnotation.y;
-                }
-
-                const imageAnnotation = {
-                    type: 'image',
-                    page: state.currentPage,
-                    x: finalX,
-                    y: finalY,
-                    width: finalWidth,
-                    height: finalHeight,
-                    originalWidth: state.pendingImage.width,
-                    originalHeight: state.pendingImage.height,
-                    src: state.pendingImage.src,
-                    element: state.pendingImage.element
-                };
-
-                // Generate base coords for the new image
-                updateNormalizedCoordinates(imageAnnotation);
-
-                state.imageAnnotations.push(imageAnnotation);
-                console.log('Image placed with aspect ratio preserved:', imageAnnotation);
-
-                // Clear pending image and switch back to move tool
-                state.pendingImage = null;
-                state.currentAnnotation = null;
-                setActiveTool('move');
-
-                redrawAnnotations();
-                updateAnnotationsList();
-            } else {
-                state.currentAnnotation = null;
-                redrawAnnotations();
-            }
-            return;
-        }
-
-        // Handle removeObject - detect background color and create fill
-        if (state.activeTool === 'removeObject' && state.currentAnnotation) {
-            // Normalize dimensions
-            if (state.currentAnnotation.width < 0) {
-                state.currentAnnotation.x += state.currentAnnotation.width;
-                state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
-            }
-            if (state.currentAnnotation.height < 0) {
-                state.currentAnnotation.y += state.currentAnnotation.height;
-                state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
-            }
-
-            // Only process if area is significant
-            if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
-                // Detect background color from the selected region
-                const backgroundColor = detectBackgroundColor(state.currentAnnotation);
-                console.log('Detected background color:', backgroundColor);
-
-                // Create annotation that covers the area with detected background
-                const removeAnnotation = {
-                    type: 'removeObject',
-                    page: state.currentPage,
-                    x: state.currentAnnotation.x,
-                    y: state.currentAnnotation.y,
-                    width: state.currentAnnotation.width,
-                    height: state.currentAnnotation.height,
-                    backgroundColor: backgroundColor
-                };
-
-                updateNormalizedCoordinates(removeAnnotation);
-
-                state.annotations.push(removeAnnotation);
-                console.log('Object removal created:', removeAnnotation);
-
-                state.currentAnnotation = null;
-                redrawAnnotations();
-                updateAnnotationsList();
-            } else {
-                state.currentAnnotation = null;
-                redrawAnnotations();
-            }
-            return;
-        }
-
-        if ((state.activeTool === 'replace' || state.activeTool === 'add') && state.currentAnnotation) {
-            // Normalize dimensions (handle negative width/height)
-            if (state.currentAnnotation.width < 0) {
-                state.currentAnnotation.x += state.currentAnnotation.width;
-                state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
-            }
-            if (state.currentAnnotation.height < 0) {
-                state.currentAnnotation.y += state.currentAnnotation.height;
-                state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
-            }
-
-            // Only show modal if selection is significant
-            if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
-                // Detect background color for replace mode (so we can cover with the right color)
-                if (state.activeTool === 'replace') {
-                    const backgroundColor = detectBackgroundColor(state.currentAnnotation);
-                    state.currentAnnotation.backgroundColor = backgroundColor;
-                    console.log('Detected background color for replace:', backgroundColor);
-                }
-                showTextModal();
-            } else {
-                state.currentAnnotation = null;
-                redrawAnnotations();
-            }
-        }
-    }
-
-    // Detect background color from a region - samples from corners which are usually background
-    function detectBackgroundColor(annotation) {
-        try {
-            const x = Math.round(annotation.x);
-            const y = Math.round(annotation.y);
-            const w = Math.round(annotation.width);
-            const h = Math.round(annotation.height);
-
-            // Sample points: 4 corners + 4 edge midpoints
-            const samplePoints = [
-                [0, 0],           // Top-left corner
-                [w - 1, 0],       // Top-right corner
-                [0, h - 1],       // Bottom-left corner
-                [w - 1, h - 1],   // Bottom-right corner
-                [Math.floor(w / 2), 0],         // Top center
-                [Math.floor(w / 2), h - 1],     // Bottom center
-                [0, Math.floor(h / 2)],         // Left center
-                [w - 1, Math.floor(h / 2)]      // Right center
-            ];
-
-            const imageData = pdfCtx.getImageData(x, y, w, h);
-            const pixels = imageData.data;
-
-            let totalR = 0, totalG = 0, totalB = 0;
-            let validSamples = 0;
-
-            for (const [px, py] of samplePoints) {
-                if (px >= 0 && px < w && py >= 0 && py < h) {
-                    const i = (py * w + px) * 4;
-                    const r = pixels[i];
-                    const g = pixels[i + 1];
-                    const b = pixels[i + 2];
-                    const a = pixels[i + 3];
-
-                    // Only count non-transparent pixels
-                    if (a >= 128) {
-                        totalR += r;
-                        totalG += g;
-                        totalB += b;
-                        validSamples++;
-                    }
-                }
-            }
-
-            // Calculate average color
-            let bgColor = '#ffffff'; // Default white
-
-            if (validSamples > 0) {
-                const avgR = Math.round(totalR / validSamples);
-                const avgG = Math.round(totalG / validSamples);
-                const avgB = Math.round(totalB / validSamples);
-
-                bgColor = '#' + [avgR, avgG, avgB].map(c => c.toString(16).padStart(2, '0')).join('');
-            }
-
-            console.log('Background color detected:', bgColor, '(from', validSamples, 'samples)');
-            return bgColor;
-        } catch (error) {
-            console.error('Error detecting background color:', error);
-            return '#ffffff'; // Default to white
-        }
-    }
-
-    // Drawing Functions
-    function drawDashedRect(x, y, width, height) {
-        annotationCtx.strokeStyle = '#667eea';
+        redrawAnnotations();
+        // Draw red dashed rectangle for removal
+        annotationCtx.strokeStyle = '#f56565'; // Red for removal
         annotationCtx.lineWidth = 2;
         annotationCtx.setLineDash([5, 5]);
-        annotationCtx.strokeRect(x, y, width, height);
+        annotationCtx.strokeRect(
+            state.currentAnnotation.x,
+            state.currentAnnotation.y,
+            state.currentAnnotation.width,
+            state.currentAnnotation.height
+        );
         annotationCtx.setLineDash([]);
-        // No fill - only dashed border
+
+        // Fill with semi-transparent red
+        annotationCtx.fillStyle = 'rgba(245, 101, 101, 0.2)';
+        annotationCtx.fillRect(
+            state.currentAnnotation.x,
+            state.currentAnnotation.y,
+            state.currentAnnotation.width,
+            state.currentAnnotation.height
+        );
+        return;
     }
 
-    function redrawAnnotations() {
-        // First sync all annotations to current canvas size
-        // This calculates fresh pixel coordinates (x,y,w,h) from normalized (0-1) values
-        if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
-        if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
+    if (state.activeTool !== 'replace' && state.activeTool !== 'add') return;
+    if (!state.currentAnnotation) return;
 
-        annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+    state.currentAnnotation.width = currentX - state.startX;
+    state.currentAnnotation.height = currentY - state.startY;
 
-        // Draw saved annotations for current page
-        state.annotations
-            .filter(ann => ann.page === state.currentPage)
-            .forEach(ann => {
-                // If removeObject mode, fill with detected background color
-                if (ann.type === 'removeObject') {
-                    annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
-                    annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
-                    // Only draw border if selected
-                    if (state.selectedAnnotation === ann) {
-                        annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.5)';
-                        annotationCtx.lineWidth = 2;
-                        annotationCtx.setLineDash([3, 3]);
-                        annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
-                        annotationCtx.setLineDash([]);
-                    }
-                    return; // Don't draw anything else for removeObject
-                }
+    redrawAnnotations();
+    drawDashedRect(
+        state.currentAnnotation.x,
+        state.currentAnnotation.y,
+        state.currentAnnotation.width,
+        state.currentAnnotation.height
+    );
+}
 
-                // If replace mode, draw background first (detected or white fallback)
-                if (ann.type === 'replace') {
-                    annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
-                    annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
-                }
+function handleMouseUp(e) {
+    if (!state.isDrawing) return;
 
-                // Only draw dashed border if this annotation is selected
-                if (state.selectedAnnotation === ann) {
-                    drawDashedRect(ann.x, ann.y, ann.width, ann.height);
-                }
+    state.isDrawing = false;
 
-                // Draw text if exists
-                if (ann.text) {
-                    const fontWeight = ann.fontWeight !== undefined ? fontWeightLevels[ann.fontWeight]?.css || 'normal' : (ann.bold ? 'bold' : 'normal');
-                    const style = ann.italic ? 'italic ' : '';
-                    const family = ann.fontFamily || 'Inter';
-                    const fontSize = ann.fontSize || 14;
-                    const lineHeight = fontSize * 1.4;
-                    const textAlign = ann.textAlign || 'left';
-                    const padding = 5;
-
-                    annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
-
-                    // Calculate x position based on alignment (for pixelate we use relative position)
-                    let textXRel; // Relative to annotation
-                    let textXAbs; // Absolute position
-                    if (textAlign === 'center') {
-                        textXRel = ann.width / 2;
-                        textXAbs = ann.x + ann.width / 2;
-                    } else if (textAlign === 'right') {
-                        textXRel = ann.width - padding;
-                        textXAbs = ann.x + ann.width - padding;
-                    } else {
-                        textXRel = padding;
-                        textXAbs = ann.x + padding;
-                    }
-
-                    // First pass: calculate number of lines for vertical centering (with newline support)
-                    const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
-
-                    // Calculate vertical centering
-                    const totalTextHeight = lines.length * lineHeight;
-                    const startYRel = (ann.height - totalTextHeight) / 2 + fontSize;
-                    const startYAbs = ann.y + startYRel;
-
-                    if (ann.pixelateLevel && ann.pixelateLevel > 0) {
-                        // Pixelated text rendering - draw at low resolution then scale up
-                        const scale = pixelateLevels[ann.pixelateLevel].scale;
-                        const tempCanvas = document.createElement('canvas');
-                        tempCanvas.width = Math.ceil(ann.width * scale);
-                        tempCanvas.height = Math.ceil(ann.height * scale);
-                        const tempCtx = tempCanvas.getContext('2d');
-
-                        // Disable smoothing for crisp pixels
-                        tempCtx.imageSmoothingEnabled = false;
-
-                        // Scale down context
-                        tempCtx.scale(scale, scale);
-
-                        // Draw text at lower resolution
-                        tempCtx.fillStyle = ann.color || '#000000';
-                        tempCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
-                        tempCtx.textAlign = textAlign;
-
-                        lines.forEach((line, index) => {
-                            tempCtx.fillText(line, textXRel, startYRel + index * lineHeight);
-                        });
-
-                        // Draw scaled-up pixelated result
-                        annotationCtx.imageSmoothingEnabled = false;
-                        annotationCtx.drawImage(tempCanvas, ann.x, ann.y, ann.width, ann.height);
-                        annotationCtx.imageSmoothingEnabled = true;
-                    } else {
-                        // Normal text rendering
-                        annotationCtx.fillStyle = ann.color || '#000000';
-                        annotationCtx.textAlign = textAlign;
-
-                        lines.forEach((line, index) => {
-                            annotationCtx.fillText(line, textXAbs, startYAbs + index * lineHeight);
-                        });
-                    }
-
-                    // Reset text alignment to default
-                    annotationCtx.textAlign = 'left';
-                }
-            });
-
-        // Draw image annotations for current page
-        state.imageAnnotations
-            .filter(img => img.page === state.currentPage)
-            .forEach(img => {
-                // Calculate source rectangle (for cropping)
-                const srcX = img.cropLeft || 0;
-                const srcY = img.cropTop || 0;
-                const srcWidth = (img.originalWidth || img.element.naturalWidth) - (img.cropLeft || 0) - (img.cropRight || 0);
-                const srcHeight = (img.originalHeight || img.element.naturalHeight) - (img.cropTop || 0) - (img.cropBottom || 0);
-
-                // Draw the image with crop applied
-                annotationCtx.drawImage(
-                    img.element,
-                    srcX, srcY, srcWidth, srcHeight,  // Source rectangle
-                    img.x, img.y, img.width, img.height  // Destination rectangle
-                );
-
-                // Draw border - orange for crop mode, green otherwise
-                if (state.croppingImage === img) {
-                    annotationCtx.strokeStyle = '#f6993f'; // Orange for crop mode
-                    annotationCtx.lineWidth = 3;
-                } else {
-                    annotationCtx.strokeStyle = '#48bb78'; // Green
-                    annotationCtx.lineWidth = 2;
-                }
-                annotationCtx.setLineDash([]);
-                annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
-            });
-
-        // Draw resize handles for selected annotation
-        if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
-            const ann = state.selectedAnnotation;
-            const handleSize = RESIZE_HANDLE_SIZE;
-            const halfHandle = handleSize / 2;
-
-            // Highlight selected annotation with thicker border
-            annotationCtx.strokeStyle = '#667eea';
-            annotationCtx.lineWidth = 3;
-            annotationCtx.setLineDash([]);
-            annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
-
-            // Draw resize handles (small squares at corners and edges)
-            annotationCtx.fillStyle = '#667eea';
-
-            // Corner handles
-            // Top-left
-            annotationCtx.fillRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            // Top-right
-            annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            // Bottom-left
-            annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-            // Bottom-right
-            annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-
-            // Edge handles (middle of each edge)
-            // Top
-            annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            // Bottom
-            annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-            // Left
-            annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
-            // Right
-            annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
-
-            // Add white border to handles for visibility
-            annotationCtx.strokeStyle = '#ffffff';
-            annotationCtx.lineWidth = 1;
-
-            // Corner handle borders
-            annotationCtx.strokeRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-
-            // Edge handle borders
-            annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
-        }
-
-        // Draw resize handles for selected image
-        if (state.selectedImage && state.selectedImage.page === state.currentPage) {
-            const img = state.selectedImage;
-            const handleSize = RESIZE_HANDLE_SIZE;
-            const halfHandle = handleSize / 2;
-
-            // Highlight selected image with thicker border
-            annotationCtx.strokeStyle = '#48bb78'; // Green for images
-            annotationCtx.lineWidth = 3;
-            annotationCtx.setLineDash([]);
-            annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
-
-            // Draw resize handles (small squares at corners and edges)
-            annotationCtx.fillStyle = '#48bb78';
-
-            // Corner handles
-            // Top-left
-            annotationCtx.fillRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            // Top-right
-            annotationCtx.fillRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            // Bottom-left
-            annotationCtx.fillRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-            // Bottom-right
-            annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-
-            // Edge handles (middle of each edge)
-            // Top
-            annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            // Bottom
-            annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-            // Left
-            annotationCtx.fillRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
-            // Right
-            annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
-
-            // Add white border to handles for visibility
-            annotationCtx.strokeStyle = '#ffffff';
-            annotationCtx.lineWidth = 1;
-
-            // Corner handle borders
-            annotationCtx.strokeRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-
-            // Edge handle borders
-            annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
-            annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
-        }
-
-        // Draw guide lines
-        drawGuideLines();
+    // Handle resize end
+    if (state.resizingAnnotation) {
+        console.log('Resize complete');
+        updateNormalizedCoordinates(state.resizingAnnotation); // Sync base coords
+        state.resizingAnnotation = null;
+        state.resizeEdge = null;
+        annotationCanvas.style.cursor = 'default';
+        redrawAnnotations();
+        updateAnnotationsList();
+        return;
     }
 
-    // Panel Functions (replacing modal)
-    function showTextPanel() {
-        textEditorPanel.style.display = 'block';
-        textInput.value = '';
-
-        // Reset defaults
-        fontFamilySelect.value = 'Inter';
-        fontSizeInput.value = '14';
-        textColorInput.value = '#000000';
-        colorValueLabel.textContent = '#000000';
-        fontBoldCheckbox.checked = false;
-        currentFontWeight = 0; // Reset font weight level
-        fontItalicCheckbox.checked = false;
-        alignLeftRadio.checked = true; // Default to left alignment
-        pixelateTextCheckbox.checked = false; // Default to no pixelation
-        currentPixelateLevel = 0; // Reset pixelation level
-
-        // Reset pixelate button title
-        const pixelateToggleBtn = pixelateTextCheckbox.parentElement?.querySelector('.toggle-btn');
-        if (pixelateToggleBtn) {
-            pixelateToggleBtn.title = 'Piksellendir: Kapalı';
-            pixelateToggleBtn.setAttribute('data-level', '0');
-        }
-
-        // Reset bold button title
-        const boldToggleBtn = fontBoldCheckbox.parentElement?.querySelector('.toggle-btn');
-        if (boldToggleBtn) {
-            boldToggleBtn.title = 'Kalınlık: Normal';
-            boldToggleBtn.setAttribute('data-level', '0');
-        }
-
-        textInput.focus();
-
-        // Scroll panel into view
-        textEditorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Handle image resize end
+    if (state.resizingImage) {
+        console.log('Image resize complete');
+        updateNormalizedCoordinates(state.resizingImage); // Sync base coords
+        state.resizingImage = null;
+        state.resizeEdge = null;
+        state.originalAspectRatio = null; // Clear aspect ratio
+        annotationCanvas.style.cursor = 'default';
+        redrawAnnotations();
+        updateAnnotationsList();
+        return;
     }
 
-    function closeTextPanel() {
-        textEditorPanel.style.display = 'none';
-        if (state.currentAnnotation && !state.currentAnnotation.text && state.editingIndex === null) {
+    if (state.draggedAnnotation) {
+        updateNormalizedCoordinates(state.draggedAnnotation); // Sync base coords
+        state.draggedAnnotation = null;
+        annotationCanvas.style.cursor = 'grab';
+        return;
+    }
+
+    if (state.draggedImage) {
+        updateNormalizedCoordinates(state.draggedImage); // Sync base coords
+        state.draggedImage = null;
+        annotationCanvas.style.cursor = 'grab';
+        return;
+    }
+
+    // Handle image placement
+    if (state.activeTool === 'placeImage' && state.pendingImage && state.currentAnnotation) {
+        // Normalize dimensions
+        if (state.currentAnnotation.width < 0) {
+            state.currentAnnotation.x += state.currentAnnotation.width;
+            state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
+        }
+        if (state.currentAnnotation.height < 0) {
+            state.currentAnnotation.y += state.currentAnnotation.height;
+            state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
+        }
+
+        // Only add if area is significant
+        if (state.currentAnnotation.width > 20 && state.currentAnnotation.height > 20) {
+            // Calculate fitting dimensions while maintaining aspect ratio
+            const imgAspect = state.pendingImage.width / state.pendingImage.height;
+            const boxAspect = state.currentAnnotation.width / state.currentAnnotation.height;
+
+            let finalWidth, finalHeight, finalX, finalY;
+
+            if (imgAspect > boxAspect) {
+                // Image is wider - fit to width
+                finalWidth = state.currentAnnotation.width;
+                finalHeight = state.currentAnnotation.width / imgAspect;
+                finalX = state.currentAnnotation.x;
+                finalY = state.currentAnnotation.y + (state.currentAnnotation.height - finalHeight) / 2;
+            } else {
+                // Image is taller - fit to height
+                finalHeight = state.currentAnnotation.height;
+                finalWidth = state.currentAnnotation.height * imgAspect;
+                finalX = state.currentAnnotation.x + (state.currentAnnotation.width - finalWidth) / 2;
+                finalY = state.currentAnnotation.y;
+            }
+
+            const imageAnnotation = {
+                type: 'image',
+                page: state.currentPage,
+                x: finalX,
+                y: finalY,
+                width: finalWidth,
+                height: finalHeight,
+                originalWidth: state.pendingImage.width,
+                originalHeight: state.pendingImage.height,
+                src: state.pendingImage.src,
+                element: state.pendingImage.element
+            };
+
+            // Generate base coords for the new image
+            updateNormalizedCoordinates(imageAnnotation);
+
+            state.imageAnnotations.push(imageAnnotation);
+            console.log('Image placed with aspect ratio preserved:', imageAnnotation);
+
+            // Clear pending image and switch back to move tool
+            state.pendingImage = null;
+            state.currentAnnotation = null;
+            setActiveTool('move');
+
+            redrawAnnotations();
+            updateAnnotationsList();
+        } else {
+            state.currentAnnotation = null;
+            redrawAnnotations();
+        }
+        return;
+    }
+
+    // Handle removeObject - detect background color and create fill
+    if (state.activeTool === 'removeObject' && state.currentAnnotation) {
+        // Normalize dimensions
+        if (state.currentAnnotation.width < 0) {
+            state.currentAnnotation.x += state.currentAnnotation.width;
+            state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
+        }
+        if (state.currentAnnotation.height < 0) {
+            state.currentAnnotation.y += state.currentAnnotation.height;
+            state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
+        }
+
+        // Only process if area is significant
+        if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
+            // Detect background color from the selected region
+            const backgroundColor = detectBackgroundColor(state.currentAnnotation);
+            console.log('Detected background color:', backgroundColor);
+
+            // Create annotation that covers the area with detected background
+            const removeAnnotation = {
+                type: 'removeObject',
+                page: state.currentPage,
+                x: state.currentAnnotation.x,
+                y: state.currentAnnotation.y,
+                width: state.currentAnnotation.width,
+                height: state.currentAnnotation.height,
+                backgroundColor: backgroundColor
+            };
+
+            updateNormalizedCoordinates(removeAnnotation);
+
+            state.annotations.push(removeAnnotation);
+            console.log('Object removal created:', removeAnnotation);
+
+            state.currentAnnotation = null;
+            redrawAnnotations();
+            updateAnnotationsList();
+        } else {
+            state.currentAnnotation = null;
+            redrawAnnotations();
+        }
+        return;
+    }
+
+    if ((state.activeTool === 'replace' || state.activeTool === 'add') && state.currentAnnotation) {
+        // Normalize dimensions (handle negative width/height)
+        if (state.currentAnnotation.width < 0) {
+            state.currentAnnotation.x += state.currentAnnotation.width;
+            state.currentAnnotation.width = Math.abs(state.currentAnnotation.width);
+        }
+        if (state.currentAnnotation.height < 0) {
+            state.currentAnnotation.y += state.currentAnnotation.height;
+            state.currentAnnotation.height = Math.abs(state.currentAnnotation.height);
+        }
+
+        // Only show modal if selection is significant
+        if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
+            // Detect background color for replace mode (so we can cover with the right color)
+            if (state.activeTool === 'replace') {
+                const backgroundColor = detectBackgroundColor(state.currentAnnotation);
+                state.currentAnnotation.backgroundColor = backgroundColor;
+                console.log('Detected background color for replace:', backgroundColor);
+            }
+            showTextModal();
+        } else {
             state.currentAnnotation = null;
             redrawAnnotations();
         }
     }
+}
 
-    // Alias for backward compatibility
-    function showTextModal() { showTextPanel(); }
-    function closeTextModal() { closeTextPanel(); }
+// Detect background color from a region - samples from corners which are usually background
+function detectBackgroundColor(annotation) {
+    try {
+        const x = Math.round(annotation.x);
+        const y = Math.round(annotation.y);
+        const w = Math.round(annotation.width);
+        const h = Math.round(annotation.height);
 
-    async function applyText() {
-        const text = textInput.value.trim();
-        const useAI = document.getElementById('useAI').checked;
+        // Sample points: 4 corners + 4 edge midpoints
+        const samplePoints = [
+            [0, 0],           // Top-left corner
+            [w - 1, 0],       // Top-right corner
+            [0, h - 1],       // Bottom-left corner
+            [w - 1, h - 1],   // Bottom-right corner
+            [Math.floor(w / 2), 0],         // Top center
+            [Math.floor(w / 2), h - 1],     // Bottom center
+            [0, Math.floor(h / 2)],         // Left center
+            [w - 1, Math.floor(h / 2)]      // Right center
+        ];
 
-        if (!text) {
-            alert('Lütfen metin girin.');
-            return;
-        }
+        const imageData = pdfCtx.getImageData(x, y, w, h);
+        const pixels = imageData.data;
 
-        if (!state.currentAnnotation) return;
+        let totalR = 0, totalG = 0, totalB = 0;
+        let validSamples = 0;
 
-        // Save properties
-        state.currentAnnotation.text = text;
-        state.currentAnnotation.fontSize = parseInt(fontSizeInput.value) || 14;
-        state.currentAnnotation.fontFamily = fontFamilySelect.value;
-        state.currentAnnotation.color = textColorInput.value;
-        state.currentAnnotation.fontWeight = currentFontWeight; // 0=normal, 1=semibold, 2=bold, 3=extrabold
-        state.currentAnnotation.italic = fontItalicCheckbox.checked;
-        // Save text alignment
-        state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
-        // Save pixelation level
-        state.currentAnnotation.pixelateLevel = currentPixelateLevel;
-
-        // Use AI to match font size
-        if (useAI && state.apiKey) {
-            try {
-                await enhanceTextWithAI(state.currentAnnotation);
-            } catch (error) {
-                console.error('AI enhancement error:', error);
-                // Non-blocking error
-            }
-        }
-
-        // Add to annotations array or update existing
-        if (state.editingIndex !== null) {
-            // When editing, currentAnnotation properties are updated.
-            // We must update base coordinates to match new properties (like fontSize)
-            updateNormalizedCoordinates(state.currentAnnotation);
-            state.annotations[state.editingIndex] = { ...state.currentAnnotation };
-            state.editingIndex = null;
-        } else {
-            // Create base coordinates for new annotation
-            updateNormalizedCoordinates(state.currentAnnotation);
-            state.annotations.push({ ...state.currentAnnotation });
-        }
-
-        state.currentAnnotation = null;
-
-        closeTextModal();
-        redrawAnnotations();
-        updateAnnotationsList();
-    }
-
-    // AI Integration
-    async function enhanceTextWithAI(annotation) {
-        if (!sharedState.apiKey) return;
-
-        // Show loading indicator
-        textInput.setAttribute('placeholder', 'AI metin stilini analiz ediyor...');
-
-        try {
-            // Extract image data from the selected region
-            const imageData = pdfCtx.getImageData(
-                Math.round(annotation.x),
-                Math.round(annotation.y),
-                Math.round(annotation.width),
-                Math.round(annotation.height)
-            );
-
-            // ===== PIXEL-BASED COLOR DETECTION =====
-            // Analyze pixels to find the dominant text color (darkest non-white pixels)
-            const pixels = imageData.data;
-            const colorCounts = {};
-
-            for (let i = 0; i < pixels.length; i += 4) {
+        for (const [px, py] of samplePoints) {
+            if (px >= 0 && px < w && py >= 0 && py < h) {
+                const i = (py * w + px) * 4;
                 const r = pixels[i];
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
                 const a = pixels[i + 3];
 
-                // Skip transparent or very light pixels (background)
-                const brightness = (r + g + b) / 3;
-                if (a < 128 || brightness > 240) continue;
-
-                // Group similar colors (quantize to reduce noise)
-                const qr = Math.round(r / 16) * 16;
-                const qg = Math.round(g / 16) * 16;
-                const qb = Math.round(b / 16) * 16;
-                const colorKey = `${qr},${qg},${qb}`;
-
-                colorCounts[colorKey] = (colorCounts[colorKey] || 0) + 1;
-            }
-
-            // Find the most common dark color (text color)
-            let dominantColor = '#000000';
-            let maxCount = 0;
-
-            for (const [colorKey, count] of Object.entries(colorCounts)) {
-                const [r, g, b] = colorKey.split(',').map(Number);
-                const brightness = (r + g + b) / 3;
-
-                // Prefer darker colors (text) over lighter ones
-                if (count > maxCount && brightness < 200) {
-                    maxCount = count;
-                    dominantColor = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+                // Only count non-transparent pixels
+                if (a >= 128) {
+                    totalR += r;
+                    totalG += g;
+                    totalB += b;
+                    validSamples++;
                 }
             }
+        }
 
-            console.log('Detected text color from pixels:', dominantColor);
-            annotation.color = dominantColor;
+        // Calculate average color
+        let bgColor = '#ffffff'; // Default white
 
-            // ===== CONVERT TO BASE64 FOR AI =====
-            const canvas = document.createElement('canvas');
-            canvas.width = imageData.width;
-            canvas.height = imageData.height;
-            const ctx = canvas.getContext('2d');
-            ctx.putImageData(imageData, 0, 0);
-            const base64Image = canvas.toDataURL('image/png').split(',')[1];
+        if (validSamples > 0) {
+            const avgR = Math.round(totalR / validSamples);
+            const avgG = Math.round(totalG / validSamples);
+            const avgB = Math.round(totalB / validSamples);
 
-            const prompt = `You are a typography expert. Analyze this image of text from a PDF document.
+            bgColor = '#' + [avgR, avgG, avgB].map(c => c.toString(16).padStart(2, '0')).join('');
+        }
+
+        console.log('Background color detected:', bgColor, '(from', validSamples, 'samples)');
+        return bgColor;
+    } catch (error) {
+        console.error('Error detecting background color:', error);
+        return '#ffffff'; // Default to white
+    }
+}
+
+// Drawing Functions
+function drawDashedRect(x, y, width, height) {
+    annotationCtx.strokeStyle = '#667eea';
+    annotationCtx.lineWidth = 2;
+    annotationCtx.setLineDash([5, 5]);
+    annotationCtx.strokeRect(x, y, width, height);
+    annotationCtx.setLineDash([]);
+    // No fill - only dashed border
+}
+
+function redrawAnnotations() {
+    // First sync all annotations to current canvas size
+    // This calculates fresh pixel coordinates (x,y,w,h) from normalized (0-1) values
+    if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
+    if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
+
+    annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+
+    // Draw saved annotations for current page
+    state.annotations
+        .filter(ann => ann.page === state.currentPage)
+        .forEach(ann => {
+            // If removeObject mode, fill with detected background color
+            if (ann.type === 'removeObject') {
+                annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
+                annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
+                // Only draw border if selected
+                if (state.selectedAnnotation === ann) {
+                    annotationCtx.strokeStyle = 'rgba(245, 101, 101, 0.5)';
+                    annotationCtx.lineWidth = 2;
+                    annotationCtx.setLineDash([3, 3]);
+                    annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+                    annotationCtx.setLineDash([]);
+                }
+                return; // Don't draw anything else for removeObject
+            }
+
+            // If replace mode, draw background first (detected or white fallback)
+            if (ann.type === 'replace') {
+                annotationCtx.fillStyle = ann.backgroundColor || '#ffffff';
+                annotationCtx.fillRect(ann.x, ann.y, ann.width, ann.height);
+            }
+
+            // Only draw dashed border if this annotation is selected
+            if (state.selectedAnnotation === ann) {
+                drawDashedRect(ann.x, ann.y, ann.width, ann.height);
+            }
+
+            // Draw text if exists
+            if (ann.text) {
+                const fontWeight = ann.fontWeight !== undefined ? fontWeightLevels[ann.fontWeight]?.css || 'normal' : (ann.bold ? 'bold' : 'normal');
+                const style = ann.italic ? 'italic ' : '';
+                const family = ann.fontFamily || 'Inter';
+                const fontSize = ann.fontSize || 14;
+                const lineHeight = fontSize * 1.4;
+                const textAlign = ann.textAlign || 'left';
+                const padding = 5;
+
+                annotationCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
+
+                // Calculate x position based on alignment (for pixelate we use relative position)
+                let textXRel; // Relative to annotation
+                let textXAbs; // Absolute position
+                if (textAlign === 'center') {
+                    textXRel = ann.width / 2;
+                    textXAbs = ann.x + ann.width / 2;
+                } else if (textAlign === 'right') {
+                    textXRel = ann.width - padding;
+                    textXAbs = ann.x + ann.width - padding;
+                } else {
+                    textXRel = padding;
+                    textXAbs = ann.x + padding;
+                }
+
+                // First pass: calculate number of lines for vertical centering (with newline support)
+                const lines = wrapTextWithNewlines(annotationCtx, ann.text, ann.width - 10);
+
+                // Calculate vertical centering
+                const totalTextHeight = lines.length * lineHeight;
+                const startYRel = (ann.height - totalTextHeight) / 2 + fontSize;
+                const startYAbs = ann.y + startYRel;
+
+                if (ann.pixelateLevel && ann.pixelateLevel > 0) {
+                    // Pixelated text rendering - draw at low resolution then scale up
+                    const scale = pixelateLevels[ann.pixelateLevel].scale;
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = Math.ceil(ann.width * scale);
+                    tempCanvas.height = Math.ceil(ann.height * scale);
+                    const tempCtx = tempCanvas.getContext('2d');
+
+                    // Disable smoothing for crisp pixels
+                    tempCtx.imageSmoothingEnabled = false;
+
+                    // Scale down context
+                    tempCtx.scale(scale, scale);
+
+                    // Draw text at lower resolution
+                    tempCtx.fillStyle = ann.color || '#000000';
+                    tempCtx.font = `${style}${fontWeight} ${fontSize}px "${family}"`;
+                    tempCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        tempCtx.fillText(line, textXRel, startYRel + index * lineHeight);
+                    });
+
+                    // Draw scaled-up pixelated result
+                    annotationCtx.imageSmoothingEnabled = false;
+                    annotationCtx.drawImage(tempCanvas, ann.x, ann.y, ann.width, ann.height);
+                    annotationCtx.imageSmoothingEnabled = true;
+                } else {
+                    // Normal text rendering
+                    annotationCtx.fillStyle = ann.color || '#000000';
+                    annotationCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        annotationCtx.fillText(line, textXAbs, startYAbs + index * lineHeight);
+                    });
+                }
+
+                // Reset text alignment to default
+                annotationCtx.textAlign = 'left';
+            }
+        });
+
+    // Draw image annotations for current page
+    state.imageAnnotations
+        .filter(img => img.page === state.currentPage)
+        .forEach(img => {
+            // Calculate source rectangle (for cropping)
+            const srcX = img.cropLeft || 0;
+            const srcY = img.cropTop || 0;
+            const srcWidth = (img.originalWidth || img.element.naturalWidth) - (img.cropLeft || 0) - (img.cropRight || 0);
+            const srcHeight = (img.originalHeight || img.element.naturalHeight) - (img.cropTop || 0) - (img.cropBottom || 0);
+
+            // Draw the image with crop applied
+            annotationCtx.drawImage(
+                img.element,
+                srcX, srcY, srcWidth, srcHeight,  // Source rectangle
+                img.x, img.y, img.width, img.height  // Destination rectangle
+            );
+
+            // Draw border - orange for crop mode, green otherwise
+            if (state.croppingImage === img) {
+                annotationCtx.strokeStyle = '#f6993f'; // Orange for crop mode
+                annotationCtx.lineWidth = 3;
+            } else {
+                annotationCtx.strokeStyle = '#48bb78'; // Green
+                annotationCtx.lineWidth = 2;
+            }
+            annotationCtx.setLineDash([]);
+            annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
+        });
+
+    // Draw resize handles for selected annotation
+    if (state.selectedAnnotation && state.selectedAnnotation.page === state.currentPage) {
+        const ann = state.selectedAnnotation;
+        const handleSize = RESIZE_HANDLE_SIZE;
+        const halfHandle = handleSize / 2;
+
+        // Highlight selected annotation with thicker border
+        annotationCtx.strokeStyle = '#667eea';
+        annotationCtx.lineWidth = 3;
+        annotationCtx.setLineDash([]);
+        annotationCtx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+
+        // Draw resize handles (small squares at corners and edges)
+        annotationCtx.fillStyle = '#667eea';
+
+        // Corner handles
+        // Top-left
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        // Top-right
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        // Bottom-left
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        // Bottom-right
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+
+        // Edge handles (middle of each edge)
+        // Top
+        annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        // Bottom
+        annotationCtx.fillRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        // Left
+        annotationCtx.fillRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
+        // Right
+        annotationCtx.fillRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
+
+        // Add white border to handles for visibility
+        annotationCtx.strokeStyle = '#ffffff';
+        annotationCtx.lineWidth = 1;
+
+        // Corner handle borders
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+
+        // Edge handle borders
+        annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width / 2 - halfHandle, ann.y + ann.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(ann.x + ann.width - halfHandle, ann.y + ann.height / 2 - halfHandle, handleSize, handleSize);
+    }
+
+    // Draw resize handles for selected image
+    if (state.selectedImage && state.selectedImage.page === state.currentPage) {
+        const img = state.selectedImage;
+        const handleSize = RESIZE_HANDLE_SIZE;
+        const halfHandle = handleSize / 2;
+
+        // Highlight selected image with thicker border
+        annotationCtx.strokeStyle = '#48bb78'; // Green for images
+        annotationCtx.lineWidth = 3;
+        annotationCtx.setLineDash([]);
+        annotationCtx.strokeRect(img.x, img.y, img.width, img.height);
+
+        // Draw resize handles (small squares at corners and edges)
+        annotationCtx.fillStyle = '#48bb78';
+
+        // Corner handles
+        // Top-left
+        annotationCtx.fillRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Top-right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Bottom-left
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        // Bottom-right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+
+        // Edge handles (middle of each edge)
+        // Top
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        // Bottom
+        annotationCtx.fillRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        // Left
+        annotationCtx.fillRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+        // Right
+        annotationCtx.fillRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+
+        // Add white border to handles for visibility
+        annotationCtx.strokeStyle = '#ffffff';
+        annotationCtx.lineWidth = 1;
+
+        // Corner handle borders
+        annotationCtx.strokeRect(img.x - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+
+        // Edge handle borders
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width / 2 - halfHandle, img.y + img.height - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+        annotationCtx.strokeRect(img.x + img.width - halfHandle, img.y + img.height / 2 - halfHandle, handleSize, handleSize);
+    }
+
+    // Draw guide lines
+    drawGuideLines();
+}
+
+// Panel Functions (replacing modal)
+function showTextPanel() {
+    textEditorPanel.style.display = 'block';
+    textInput.value = '';
+
+    // Reset defaults
+    fontFamilySelect.value = 'Inter';
+    fontSizeInput.value = '14';
+    textColorInput.value = '#000000';
+    colorValueLabel.textContent = '#000000';
+    fontBoldCheckbox.checked = false;
+    currentFontWeight = 0; // Reset font weight level
+    fontItalicCheckbox.checked = false;
+    alignLeftRadio.checked = true; // Default to left alignment
+    pixelateTextCheckbox.checked = false; // Default to no pixelation
+    currentPixelateLevel = 0; // Reset pixelation level
+
+    // Reset pixelate button title
+    const pixelateToggleBtn = pixelateTextCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (pixelateToggleBtn) {
+        pixelateToggleBtn.title = 'Piksellendir: Kapalı';
+        pixelateToggleBtn.setAttribute('data-level', '0');
+    }
+
+    // Reset bold button title
+    const boldToggleBtn = fontBoldCheckbox.parentElement?.querySelector('.toggle-btn');
+    if (boldToggleBtn) {
+        boldToggleBtn.title = 'Kalınlık: Normal';
+        boldToggleBtn.setAttribute('data-level', '0');
+    }
+
+    textInput.focus();
+
+    // Scroll panel into view
+    textEditorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeTextPanel() {
+    textEditorPanel.style.display = 'none';
+    if (state.currentAnnotation && !state.currentAnnotation.text && state.editingIndex === null) {
+        state.currentAnnotation = null;
+        redrawAnnotations();
+    }
+}
+
+// Alias for backward compatibility
+function showTextModal() { showTextPanel(); }
+function closeTextModal() { closeTextPanel(); }
+
+async function applyText() {
+    const text = textInput.value.trim();
+    const useAI = document.getElementById('useAI').checked;
+
+    if (!text) {
+        alert('Lütfen metin girin.');
+        return;
+    }
+
+    if (!state.currentAnnotation) return;
+
+    // Save properties
+    state.currentAnnotation.text = text;
+    state.currentAnnotation.fontSize = parseInt(fontSizeInput.value) || 14;
+    state.currentAnnotation.fontFamily = fontFamilySelect.value;
+    state.currentAnnotation.color = textColorInput.value;
+    state.currentAnnotation.fontWeight = currentFontWeight; // 0=normal, 1=semibold, 2=bold, 3=extrabold
+    state.currentAnnotation.italic = fontItalicCheckbox.checked;
+    // Save text alignment
+    state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
+    // Save pixelation level
+    state.currentAnnotation.pixelateLevel = currentPixelateLevel;
+
+    // Use AI to match font size
+    if (useAI && state.apiKey) {
+        try {
+            await enhanceTextWithAI(state.currentAnnotation);
+        } catch (error) {
+            console.error('AI enhancement error:', error);
+            // Non-blocking error
+        }
+    }
+
+    // Add to annotations array or update existing
+    if (state.editingIndex !== null) {
+        // When editing, currentAnnotation properties are updated.
+        // We must update base coordinates to match new properties (like fontSize)
+        updateNormalizedCoordinates(state.currentAnnotation);
+        state.annotations[state.editingIndex] = { ...state.currentAnnotation };
+        state.editingIndex = null;
+    } else {
+        // Create base coordinates for new annotation
+        updateNormalizedCoordinates(state.currentAnnotation);
+        state.annotations.push({ ...state.currentAnnotation });
+    }
+
+    state.currentAnnotation = null;
+
+    closeTextModal();
+    redrawAnnotations();
+    updateAnnotationsList();
+}
+
+// AI Integration
+async function enhanceTextWithAI(annotation) {
+    if (!sharedState.apiKey) return;
+
+    // Show loading indicator
+    textInput.setAttribute('placeholder', 'AI metin stilini analiz ediyor...');
+
+    try {
+        // Extract image data from the selected region
+        const imageData = pdfCtx.getImageData(
+            Math.round(annotation.x),
+            Math.round(annotation.y),
+            Math.round(annotation.width),
+            Math.round(annotation.height)
+        );
+
+        // ===== PIXEL-BASED COLOR DETECTION =====
+        // Analyze pixels to find the dominant text color (darkest non-white pixels)
+        const pixels = imageData.data;
+        const colorCounts = {};
+
+        for (let i = 0; i < pixels.length; i += 4) {
+            const r = pixels[i];
+            const g = pixels[i + 1];
+            const b = pixels[i + 2];
+            const a = pixels[i + 3];
+
+            // Skip transparent or very light pixels (background)
+            const brightness = (r + g + b) / 3;
+            if (a < 128 || brightness > 240) continue;
+
+            // Group similar colors (quantize to reduce noise)
+            const qr = Math.round(r / 16) * 16;
+            const qg = Math.round(g / 16) * 16;
+            const qb = Math.round(b / 16) * 16;
+            const colorKey = `${qr},${qg},${qb}`;
+
+            colorCounts[colorKey] = (colorCounts[colorKey] || 0) + 1;
+        }
+
+        // Find the most common dark color (text color)
+        let dominantColor = '#000000';
+        let maxCount = 0;
+
+        for (const [colorKey, count] of Object.entries(colorCounts)) {
+            const [r, g, b] = colorKey.split(',').map(Number);
+            const brightness = (r + g + b) / 3;
+
+            // Prefer darker colors (text) over lighter ones
+            if (count > maxCount && brightness < 200) {
+                maxCount = count;
+                dominantColor = '#' + [r, g, b].map(c => c.toString(16).padStart(2, '0')).join('');
+            }
+        }
+
+        console.log('Detected text color from pixels:', dominantColor);
+        annotation.color = dominantColor;
+
+        // ===== CONVERT TO BASE64 FOR AI =====
+        const canvas = document.createElement('canvas');
+        canvas.width = imageData.width;
+        canvas.height = imageData.height;
+        const ctx = canvas.getContext('2d');
+        ctx.putImageData(imageData, 0, 0);
+        const base64Image = canvas.toDataURL('image/png').split(',')[1];
+
+        const prompt = `You are a typography expert. Analyze this image of text from a PDF document.
 
 IMPORTANT MEASUREMENTS:
 - Image width: ${Math.round(annotation.width)} pixels
@@ -2426,746 +2428,746 @@ YOUR TASK: Detect the text properties with HIGH ACCURACY.
 RESPOND WITH ONLY A JSON OBJECT, NO OTHER TEXT:
 {"fontSize": number, "fontFamily": "string", "bold": boolean, "italic": boolean}`;
 
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${sharedState.apiKey}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    contents: [{
-                        parts: [
-                            { text: prompt },
-                            { inline_data: { mime_type: 'image/png', data: base64Image } }
-                        ]
-                    }]
-                })
-            });
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${sharedState.apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [
+                        { text: prompt },
+                        { inline_data: { mime_type: 'image/png', data: base64Image } }
+                    ]
+                }]
+            })
+        });
 
-            if (!response.ok) {
-                throw new Error('API request failed');
-            }
-
-            const data = await response.json();
-            const aiResponse = data.candidates[0].content.parts[0].text;
-            console.log('AI Style Detection Response:', aiResponse);
-
-            // Try to parse JSON from AI response
-            try {
-                // Extract JSON from response (handle markdown code blocks)
-                let jsonStr = aiResponse;
-                const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                    jsonStr = jsonMatch[0];
-                }
-
-                const styleData = JSON.parse(jsonStr);
-
-                // Apply detected styles to annotation
-                if (styleData.fontSize) {
-                    annotation.fontSize = Math.max(8, Math.min(72, styleData.fontSize));
-                }
-                if (styleData.fontFamily) {
-                    annotation.fontFamily = styleData.fontFamily;
-                }
-                if (styleData.color && styleData.color.startsWith('#')) {
-                    annotation.color = styleData.color;
-                }
-                if (typeof styleData.bold === 'boolean') {
-                    annotation.bold = styleData.bold;
-                }
-                if (typeof styleData.italic === 'boolean') {
-                    annotation.italic = styleData.italic;
-                }
-
-                console.log('Detected styles:', styleData);
-
-            } catch (parseError) {
-                // Fallback: just extract font size
-                console.warn('Could not parse full style, extracting font size only');
-                const match = aiResponse.match(/\d+/);
-                const fontSize = match ? parseInt(match[0]) : 14;
-                annotation.fontSize = Math.max(8, Math.min(72, fontSize));
-            }
-
-            // Update UI if still editing this annotation
-            if (state.currentAnnotation === annotation) {
-                fontSizeInput.value = annotation.fontSize || 14;
-                fontFamilySelect.value = annotation.fontFamily || 'Inter';
-                textColorInput.value = annotation.color || '#000000';
-                colorValueLabel.textContent = (annotation.color || '#000000').toUpperCase();
-                fontBoldCheckbox.checked = annotation.bold || false;
-                fontItalicCheckbox.checked = annotation.italic || false;
-            }
-
-            // Reset placeholder
-            textInput.setAttribute('placeholder', 'Eklemek istediğiniz metni yazın...');
-
-        } catch (error) {
-            console.error('AI enhancement failed:', error);
-            textInput.setAttribute('placeholder', 'AI hatası. Lütfen manuel girin.');
+        if (!response.ok) {
+            throw new Error('API request failed');
         }
+
+        const data = await response.json();
+        const aiResponse = data.candidates[0].content.parts[0].text;
+        console.log('AI Style Detection Response:', aiResponse);
+
+        // Try to parse JSON from AI response
+        try {
+            // Extract JSON from response (handle markdown code blocks)
+            let jsonStr = aiResponse;
+            const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                jsonStr = jsonMatch[0];
+            }
+
+            const styleData = JSON.parse(jsonStr);
+
+            // Apply detected styles to annotation
+            if (styleData.fontSize) {
+                annotation.fontSize = Math.max(8, Math.min(72, styleData.fontSize));
+            }
+            if (styleData.fontFamily) {
+                annotation.fontFamily = styleData.fontFamily;
+            }
+            if (styleData.color && styleData.color.startsWith('#')) {
+                annotation.color = styleData.color;
+            }
+            if (typeof styleData.bold === 'boolean') {
+                annotation.bold = styleData.bold;
+            }
+            if (typeof styleData.italic === 'boolean') {
+                annotation.italic = styleData.italic;
+            }
+
+            console.log('Detected styles:', styleData);
+
+        } catch (parseError) {
+            // Fallback: just extract font size
+            console.warn('Could not parse full style, extracting font size only');
+            const match = aiResponse.match(/\d+/);
+            const fontSize = match ? parseInt(match[0]) : 14;
+            annotation.fontSize = Math.max(8, Math.min(72, fontSize));
+        }
+
+        // Update UI if still editing this annotation
+        if (state.currentAnnotation === annotation) {
+            fontSizeInput.value = annotation.fontSize || 14;
+            fontFamilySelect.value = annotation.fontFamily || 'Inter';
+            textColorInput.value = annotation.color || '#000000';
+            colorValueLabel.textContent = (annotation.color || '#000000').toUpperCase();
+            fontBoldCheckbox.checked = annotation.bold || false;
+            fontItalicCheckbox.checked = annotation.italic || false;
+        }
+
+        // Reset placeholder
+        textInput.setAttribute('placeholder', 'Eklemek istediğiniz metni yazın...');
+
+    } catch (error) {
+        console.error('AI enhancement failed:', error);
+        textInput.setAttribute('placeholder', 'AI hatası. Lütfen manuel girin.');
+    }
+}
+
+// Annotations List
+function updateAnnotationsList() {
+    const totalItems = state.annotations.length + state.imageAnnotations.length;
+
+    if (totalItems === 0) {
+        annotationsList.innerHTML = '<p class="empty-state">Henüz düzenleme yok</p>';
+        return;
     }
 
-    // Annotations List
-    function updateAnnotationsList() {
-        const totalItems = state.annotations.length + state.imageAnnotations.length;
+    let html = '';
 
-        if (totalItems === 0) {
-            annotationsList.innerHTML = '<p class="empty-state">Henüz düzenleme yok</p>';
+    // Text annotations
+    state.annotations.forEach((ann, index) => {
+        html += '<div class="annotation-item" onclick="window.goToAnnotation(' + index + ')">';
+        html += '<div>';
+        html += '<div class="annotation-text">';
+
+        // Determine badge text and type
+        let badgeText = 'Ekle';
+        let badgeClass = ann.type;
+        if (ann.type === 'replace') {
+            badgeText = 'Değiştir';
+        } else if (ann.type === 'removeObject') {
+            badgeText = 'Kaldır';
+        } else if (ann.type === 'add') {
+            badgeText = 'Ekle';
+        }
+
+        html += '<span class="badge ' + badgeClass + '">' + badgeText + '</span>';
+
+        // Display text or description
+        if (ann.type === 'removeObject') {
+            html += 'Obje kaldırıldı';
+        } else {
+            html += (ann.text || 'Boş seçim');
+        }
+
+        html += '</div>';
+
+        // Meta info
+        if (ann.type === 'removeObject') {
+            html += '<div class="annotation-meta">Sayfa ' + ann.page + ' • Arkaplan: ' + (ann.backgroundColor || '#fff') + '</div>';
+        } else {
+            html += '<div class="annotation-meta">Sayfa ' + ann.page + ' • Boyut: ' + Math.round(ann.fontSize || 14) + 'px</div>';
+        }
+
+        html += '</div>';
+        html += '<div class="annotation-actions">';
+
+        // Only show edit button for text annotations, not for removeObject
+        if (ann.type !== 'removeObject') {
+            html += '<button class="edit-btn" onclick="event.stopPropagation(); window.editAnnotation(' + index + ')" title="Düzenle">';
+            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+            html += '</button>';
+        }
+
+        html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDelete(' + index + ')" title="Sil">';
+        html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        html += '</button>';
+        html += '</div>';
+        html += '</div>';
+    });
+
+    // Image annotations
+    state.imageAnnotations.forEach((img, index) => {
+        html += '<div class="annotation-item" onclick="window.goToImageAnnotation(' + index + ')">';
+        html += '<div>';
+        html += '<div class="annotation-text">';
+        html += '<span class="badge image">Görsel</span>';
+        html += 'Görsel #' + (index + 1);
+        html += '</div>';
+        html += '<div class="annotation-meta">Sayfa ' + img.page + ' • ' + Math.round(img.width) + 'x' + Math.round(img.height) + 'px</div>';
+        html += '</div>';
+        html += '<div class="annotation-actions">';
+        // Crop button
+        const isCropping = state.croppingImage === img;
+        const cropBtnClass = isCropping ? 'edit-btn active' : 'edit-btn';
+        const cropTitle = isCropping ? 'Kırpmayı Tamamla' : 'Kırp';
+
+        html += `<button class="${cropBtnClass}" onclick="event.stopPropagation(); window.startCropImage(${index})" title="${cropTitle}">`;
+        html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">';
+        html += '<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>';
+        html += '<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>';
+        html += '</svg>';
+        html += '</button>';
+        // Delete button
+        html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDeleteImage(' + index + ')" title="Sil">';
+        html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        html += '</button>';
+        html += '</div>';
+        html += '</div>';
+    });
+
+    annotationsList.innerHTML = html;
+}
+
+// Delete handler
+function handleDelete(index) {
+    console.log('handleDelete called with index:', index);
+    state.annotations.splice(index, 1);
+    updateAnnotationsList();
+    redrawAnnotations();
+}
+window.handleDelete = handleDelete;
+
+// Delete image handler
+function handleDeleteImage(index) {
+    console.log('handleDeleteImage called with index:', index);
+    state.imageAnnotations.splice(index, 1);
+    updateAnnotationsList();
+    redrawAnnotations();
+}
+window.handleDeleteImage = handleDeleteImage;
+
+// Navigate to image annotation
+function goToImageAnnotation(index) {
+    const img = state.imageAnnotations[index];
+    if (img && img.page !== state.currentPage) {
+        goToPage(img.page);
+    }
+}
+window.goToImageAnnotation = goToImageAnnotation;
+
+// Start crop mode for image
+function startCropImage(index) {
+    const img = state.imageAnnotations[index];
+    if (!img) return;
+
+    // Navigate to image page if needed
+    if (img.page !== state.currentPage) {
+        goToPage(img.page);
+    }
+
+    // Toggle crop mode
+    if (state.croppingImage === img) {
+        // Exit crop mode
+        state.croppingImage = null;
+        // alert('Kırpma modu kapatıldı.'); // Removed alert for smoother UX
+    } else {
+        // Enter crop mode - select image and enable crop
+        state.croppingImage = img;
+        state.selectedImage = img;
+
+        // Initialize crop region if not set
+        if (img.cropLeft === undefined) img.cropLeft = 0;
+        if (img.cropTop === undefined) img.cropTop = 0;
+        if (img.cropRight === undefined) img.cropRight = 0;
+        if (img.cropBottom === undefined) img.cropBottom = 0;
+
+        // alert('...'); // Removed alert
+    }
+
+    updateAnnotationsList();
+    redrawAnnotations();
+}
+window.startCropImage = startCropImage;
+
+function editAnnotation(index) {
+    state.editingIndex = index;
+    const ann = state.annotations[index];
+
+    // Set as current annotation (clone it)
+    state.currentAnnotation = { ...ann };
+
+    // Show panel instead of modal
+    textEditorPanel.style.display = 'block';
+
+    // Fill inputs
+    textInput.value = ann.text || '';
+    fontSizeInput.value = ann.fontSize || 14;
+    fontFamilySelect.value = ann.fontFamily || 'Inter';
+    textColorInput.value = ann.color || '#000000';
+    colorValueLabel.textContent = (ann.color || '#000000').toUpperCase();
+    fontBoldCheckbox.checked = ann.bold || false;
+    fontItalicCheckbox.checked = ann.italic || false;
+
+    // Set text alignment
+    const alignment = ann.textAlign || 'left';
+    if (alignment === 'center') {
+        alignCenterRadio.checked = true;
+    } else if (alignment === 'right') {
+        alignRightRadio.checked = true;
+    } else {
+        alignLeftRadio.checked = true;
+    }
+
+    textInput.focus();
+
+    // Scroll panel into view
+    textEditorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function goToAnnotation(index) {
+    const annotation = state.annotations[index];
+    if (annotation.page !== state.currentPage) {
+        goToPage(annotation.page);
+    }
+
+    // Highlight the annotation briefly
+    setTimeout(() => {
+        annotationCtx.save();
+        annotationCtx.strokeStyle = '#f093fb';
+        annotationCtx.lineWidth = 3;
+        annotationCtx.strokeRect(annotation.x - 2, annotation.y - 2, annotation.width + 4, annotation.height + 4);
+        annotationCtx.restore();
+
+        setTimeout(() => redrawAnnotations(), 1000);
+    }, 100);
+}
+
+// Download PDF using pdf-lib
+downloadBtn.addEventListener('click', async () => {
+    if (!state.pdfDoc) return;
+
+    console.log('Download initiated. Original file:', state.originalFile ? 'Present' : 'Missing');
+
+    try {
+        // Access PDFLib via window object to ensure it's found
+        const PDFLib = window.PDFLib;
+        console.log('PDFLib loaded:', !!PDFLib);
+        if (!PDFLib) throw new Error('PDF-Lib kütüphanesi yüklenemedi.');
+
+        const { PDFDocument, rgb, StandardFonts } = PDFLib;
+        console.log('PDFLib components extracted');
+
+        // Load existing PDF
+        const file = state.originalFile;
+        if (!file) {
+            alert('Lütfen önce bir PDF dosyası yükleyin.');
             return;
         }
 
-        let html = '';
+        console.log('Loading PDF for editing...');
+        const arrayBuffer = await file.arrayBuffer();
+        console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
 
-        // Text annotations
-        state.annotations.forEach((ann, index) => {
-            html += '<div class="annotation-item" onclick="window.goToAnnotation(' + index + ')">';
-            html += '<div>';
-            html += '<div class="annotation-text">';
+        const pdfDoc = await PDFDocument.load(arrayBuffer);
+        console.log('PDFDocument loaded');
 
-            // Determine badge text and type
-            let badgeText = 'Ekle';
-            let badgeClass = ann.type;
+        const pages = pdfDoc.getPages();
+        console.log('Pages retrieved:', pages.length);
+
+        // Embed both regular and bold fonts
+        const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        console.log('Fonts embedded (regular + bold)');
+
+        console.log('Processing', state.annotations.length, 'annotations');
+
+        // Iterate through all annotations
+        for (const ann of state.annotations) {
+            // PDF-lib pages are 0-indexed, our state is 1-indexed
+            const pageIndex = ann.page - 1;
+            if (pageIndex < 0 || pageIndex >= pages.length) continue;
+
+            const page = pages[pageIndex];
+            const { width, height } = page.getSize();
+
+            // Coordinate conversion
+            const pdfJsPage = await state.pdfDoc.getPage(ann.page);
+            const viewport = pdfJsPage.getViewport({ scale: state.zoom * 1.5 });
+
+            const scaleX = width / viewport.width;
+            const scaleY = height / viewport.height;
+
+            const pdfX = ann.x * scaleX;
+            // PDF Y is inverted: height - (y * scaleY) - (annotation height * scaleY)
+            const pdfY = height - (ann.y * scaleY) - (ann.height * scaleY);
+
+            const pdfWidth = ann.width * scaleX;
+            const pdfHeight = ann.height * scaleY;
+
+            const pdfFontSize = (ann.fontSize || 14) * scaleY;
+
+            // Parse hex color to RGB - moved here for reuse
+            const hexToRgb = (hex) => {
+                if (!hex || hex.length < 7) return { r: 1, g: 1, b: 1 }; // Default white
+                const r = parseInt(hex.slice(1, 3), 16) / 255;
+                const g = parseInt(hex.slice(3, 5), 16) / 255;
+                const b = parseInt(hex.slice(5, 7), 16) / 255;
+                return { r, g, b };
+            };
+
+            // If removeObject mode, fill with detected background color
+            if (ann.type === 'removeObject') {
+                const bgColor = hexToRgb(ann.backgroundColor);
+                page.drawRectangle({
+                    x: pdfX,
+                    y: pdfY,
+                    width: pdfWidth,
+                    height: pdfHeight,
+                    color: rgb(bgColor.r, bgColor.g, bgColor.b),
+                });
+                console.log('Drew removeObject rectangle with color:', ann.backgroundColor);
+                continue; // Skip text drawing for removeObject
+            }
+
+            // If replace mode, draw background rectangle (detected color or white fallback)
             if (ann.type === 'replace') {
-                badgeText = 'Değiştir';
-            } else if (ann.type === 'removeObject') {
-                badgeText = 'Kaldır';
-            } else if (ann.type === 'add') {
-                badgeText = 'Ekle';
+                const bgColor = ann.backgroundColor ? hexToRgb(ann.backgroundColor) : { r: 1, g: 1, b: 1 };
+                page.drawRectangle({
+                    x: pdfX,
+                    y: pdfY,
+                    width: pdfWidth,
+                    height: pdfHeight,
+                    color: rgb(bgColor.r, bgColor.g, bgColor.b),
+                });
             }
 
-            html += '<span class="badge ' + badgeClass + '">' + badgeText + '</span>';
-
-            // Display text or description
-            if (ann.type === 'removeObject') {
-                html += 'Obje kaldırıldı';
-            } else {
-                html += (ann.text || 'Boş seçim');
-            }
-
-            html += '</div>';
-
-            // Meta info
-            if (ann.type === 'removeObject') {
-                html += '<div class="annotation-meta">Sayfa ' + ann.page + ' • Arkaplan: ' + (ann.backgroundColor || '#fff') + '</div>';
-            } else {
-                html += '<div class="annotation-meta">Sayfa ' + ann.page + ' • Boyut: ' + Math.round(ann.fontSize || 14) + 'px</div>';
-            }
-
-            html += '</div>';
-            html += '<div class="annotation-actions">';
-
-            // Only show edit button for text annotations, not for removeObject
-            if (ann.type !== 'removeObject') {
-                html += '<button class="edit-btn" onclick="event.stopPropagation(); window.editAnnotation(' + index + ')" title="Düzenle">';
-                html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-                html += '</button>';
-            }
-
-            html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDelete(' + index + ')" title="Sil">';
-            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-            html += '</button>';
-            html += '</div>';
-            html += '</div>';
-        });
-
-        // Image annotations
-        state.imageAnnotations.forEach((img, index) => {
-            html += '<div class="annotation-item" onclick="window.goToImageAnnotation(' + index + ')">';
-            html += '<div>';
-            html += '<div class="annotation-text">';
-            html += '<span class="badge image">Görsel</span>';
-            html += 'Görsel #' + (index + 1);
-            html += '</div>';
-            html += '<div class="annotation-meta">Sayfa ' + img.page + ' • ' + Math.round(img.width) + 'x' + Math.round(img.height) + 'px</div>';
-            html += '</div>';
-            html += '<div class="annotation-actions">';
-            // Crop button
-            const isCropping = state.croppingImage === img;
-            const cropBtnClass = isCropping ? 'edit-btn active' : 'edit-btn';
-            const cropTitle = isCropping ? 'Kırpmayı Tamamla' : 'Kırp';
-
-            html += `<button class="${cropBtnClass}" onclick="event.stopPropagation(); window.startCropImage(${index})" title="${cropTitle}">`;
-            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">';
-            html += '<path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path>';
-            html += '<path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path>';
-            html += '</svg>';
-            html += '</button>';
-            // Delete button
-            html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDeleteImage(' + index + ')" title="Sil">';
-            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-            html += '</button>';
-            html += '</div>';
-            html += '</div>';
-        });
-
-        annotationsList.innerHTML = html;
-    }
-
-    // Delete handler
-    function handleDelete(index) {
-        console.log('handleDelete called with index:', index);
-        state.annotations.splice(index, 1);
-        updateAnnotationsList();
-        redrawAnnotations();
-    }
-    window.handleDelete = handleDelete;
-
-    // Delete image handler
-    function handleDeleteImage(index) {
-        console.log('handleDeleteImage called with index:', index);
-        state.imageAnnotations.splice(index, 1);
-        updateAnnotationsList();
-        redrawAnnotations();
-    }
-    window.handleDeleteImage = handleDeleteImage;
-
-    // Navigate to image annotation
-    function goToImageAnnotation(index) {
-        const img = state.imageAnnotations[index];
-        if (img && img.page !== state.currentPage) {
-            goToPage(img.page);
-        }
-    }
-    window.goToImageAnnotation = goToImageAnnotation;
-
-    // Start crop mode for image
-    function startCropImage(index) {
-        const img = state.imageAnnotations[index];
-        if (!img) return;
-
-        // Navigate to image page if needed
-        if (img.page !== state.currentPage) {
-            goToPage(img.page);
-        }
-
-        // Toggle crop mode
-        if (state.croppingImage === img) {
-            // Exit crop mode
-            state.croppingImage = null;
-            // alert('Kırpma modu kapatıldı.'); // Removed alert for smoother UX
-        } else {
-            // Enter crop mode - select image and enable crop
-            state.croppingImage = img;
-            state.selectedImage = img;
-
-            // Initialize crop region if not set
-            if (img.cropLeft === undefined) img.cropLeft = 0;
-            if (img.cropTop === undefined) img.cropTop = 0;
-            if (img.cropRight === undefined) img.cropRight = 0;
-            if (img.cropBottom === undefined) img.cropBottom = 0;
-
-            // alert('...'); // Removed alert
-        }
-
-        updateAnnotationsList();
-        redrawAnnotations();
-    }
-    window.startCropImage = startCropImage;
-
-    function editAnnotation(index) {
-        state.editingIndex = index;
-        const ann = state.annotations[index];
-
-        // Set as current annotation (clone it)
-        state.currentAnnotation = { ...ann };
-
-        // Show panel instead of modal
-        textEditorPanel.style.display = 'block';
-
-        // Fill inputs
-        textInput.value = ann.text || '';
-        fontSizeInput.value = ann.fontSize || 14;
-        fontFamilySelect.value = ann.fontFamily || 'Inter';
-        textColorInput.value = ann.color || '#000000';
-        colorValueLabel.textContent = (ann.color || '#000000').toUpperCase();
-        fontBoldCheckbox.checked = ann.bold || false;
-        fontItalicCheckbox.checked = ann.italic || false;
-
-        // Set text alignment
-        const alignment = ann.textAlign || 'left';
-        if (alignment === 'center') {
-            alignCenterRadio.checked = true;
-        } else if (alignment === 'right') {
-            alignRightRadio.checked = true;
-        } else {
-            alignLeftRadio.checked = true;
-        }
-
-        textInput.focus();
-
-        // Scroll panel into view
-        textEditorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-
-    function goToAnnotation(index) {
-        const annotation = state.annotations[index];
-        if (annotation.page !== state.currentPage) {
-            goToPage(annotation.page);
-        }
-
-        // Highlight the annotation briefly
-        setTimeout(() => {
-            annotationCtx.save();
-            annotationCtx.strokeStyle = '#f093fb';
-            annotationCtx.lineWidth = 3;
-            annotationCtx.strokeRect(annotation.x - 2, annotation.y - 2, annotation.width + 4, annotation.height + 4);
-            annotationCtx.restore();
-
-            setTimeout(() => redrawAnnotations(), 1000);
-        }, 100);
-    }
-
-    // Download PDF using pdf-lib
-    downloadBtn.addEventListener('click', async () => {
-        if (!state.pdfDoc) return;
-
-        console.log('Download initiated. Original file:', state.originalFile ? 'Present' : 'Missing');
-
-        try {
-            // Access PDFLib via window object to ensure it's found
-            const PDFLib = window.PDFLib;
-            console.log('PDFLib loaded:', !!PDFLib);
-            if (!PDFLib) throw new Error('PDF-Lib kütüphanesi yüklenemedi.');
-
-            const { PDFDocument, rgb, StandardFonts } = PDFLib;
-            console.log('PDFLib components extracted');
-
-            // Load existing PDF
-            const file = state.originalFile;
-            if (!file) {
-                alert('Lütfen önce bir PDF dosyası yükleyin.');
-                return;
-            }
-
-            console.log('Loading PDF for editing...');
-            const arrayBuffer = await file.arrayBuffer();
-            console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
-
-            const pdfDoc = await PDFDocument.load(arrayBuffer);
-            console.log('PDFDocument loaded');
-
-            const pages = pdfDoc.getPages();
-            console.log('Pages retrieved:', pages.length);
-
-            // Embed both regular and bold fonts
-            const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-            const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-            console.log('Fonts embedded (regular + bold)');
-
-            console.log('Processing', state.annotations.length, 'annotations');
-
-            // Iterate through all annotations
-            for (const ann of state.annotations) {
-                // PDF-lib pages are 0-indexed, our state is 1-indexed
-                const pageIndex = ann.page - 1;
-                if (pageIndex < 0 || pageIndex >= pages.length) continue;
-
-                const page = pages[pageIndex];
-                const { width, height } = page.getSize();
-
-                // Coordinate conversion
-                const pdfJsPage = await state.pdfDoc.getPage(ann.page);
-                const viewport = pdfJsPage.getViewport({ scale: state.zoom * 1.5 });
-
-                const scaleX = width / viewport.width;
-                const scaleY = height / viewport.height;
-
-                const pdfX = ann.x * scaleX;
-                // PDF Y is inverted: height - (y * scaleY) - (annotation height * scaleY)
-                const pdfY = height - (ann.y * scaleY) - (ann.height * scaleY);
-
-                const pdfWidth = ann.width * scaleX;
-                const pdfHeight = ann.height * scaleY;
-
-                const pdfFontSize = (ann.fontSize || 14) * scaleY;
-
-                // Parse hex color to RGB - moved here for reuse
-                const hexToRgb = (hex) => {
-                    if (!hex || hex.length < 7) return { r: 1, g: 1, b: 1 }; // Default white
-                    const r = parseInt(hex.slice(1, 3), 16) / 255;
-                    const g = parseInt(hex.slice(3, 5), 16) / 255;
-                    const b = parseInt(hex.slice(5, 7), 16) / 255;
-                    return { r, g, b };
+            // Draw Text
+            if (ann.text) {
+                // Sanitize Turkish characters for PDF compatibility
+                const sanitizeTurkishChars = (text) => {
+                    const charMap = {
+                        'ı': 'i', 'İ': 'I',
+                        'ş': 's', 'Ş': 'S',
+                        'ğ': 'g', 'Ğ': 'G',
+                        'ü': 'u', 'Ü': 'U',
+                        'ö': 'o', 'Ö': 'O',
+                        'ç': 'c', 'Ç': 'C'
+                    };
+                    return text.replace(/[ışğüöçİŞĞÜÖÇ]/g, char => charMap[char] || char);
                 };
 
-                // If removeObject mode, fill with detected background color
-                if (ann.type === 'removeObject') {
-                    const bgColor = hexToRgb(ann.backgroundColor);
-                    page.drawRectangle({
-                        x: pdfX,
-                        y: pdfY,
-                        width: pdfWidth,
-                        height: pdfHeight,
-                        color: rgb(bgColor.r, bgColor.g, bgColor.b),
-                    });
-                    console.log('Drew removeObject rectangle with color:', ann.backgroundColor);
-                    continue; // Skip text drawing for removeObject
-                }
+                const safeText = sanitizeTurkishChars(ann.text);
 
-                // If replace mode, draw background rectangle (detected color or white fallback)
-                if (ann.type === 'replace') {
-                    const bgColor = ann.backgroundColor ? hexToRgb(ann.backgroundColor) : { r: 1, g: 1, b: 1 };
-                    page.drawRectangle({
-                        x: pdfX,
-                        y: pdfY,
-                        width: pdfWidth,
-                        height: pdfHeight,
-                        color: rgb(bgColor.r, bgColor.g, bgColor.b),
-                    });
-                }
+                // Use hexToRgb defined above
+                const color = ann.color ? hexToRgb(ann.color) : { r: 0, g: 0, b: 0 };
 
-                // Draw Text
-                if (ann.text) {
-                    // Sanitize Turkish characters for PDF compatibility
-                    const sanitizeTurkishChars = (text) => {
-                        const charMap = {
-                            'ı': 'i', 'İ': 'I',
-                            'ş': 's', 'Ş': 'S',
-                            'ğ': 'g', 'Ğ': 'G',
-                            'ü': 'u', 'Ü': 'U',
-                            'ö': 'o', 'Ö': 'O',
-                            'ç': 'c', 'Ç': 'C'
-                        };
-                        return text.replace(/[ışğüöçİŞĞÜÖÇ]/g, char => charMap[char] || char);
-                    };
+                // Check if pixelation is enabled
+                if (ann.pixelateLevel && ann.pixelateLevel > 0) {
+                    // Capture the exact rendered appearance from annotation canvas
+                    // First, we need to render this annotation to a temporary canvas exactly as it appears
 
-                    const safeText = sanitizeTurkishChars(ann.text);
+                    const pixelScale = pixelateLevels[ann.pixelateLevel].scale;
+                    const weight = ann.bold ? 'bold ' : '';
+                    const style = ann.italic ? 'italic ' : '';
+                    const family = ann.fontFamily || 'Inter';
+                    const annFontSize = ann.fontSize || 14;
+                    const lineHeight = annFontSize * 1.4;
+                    const textAlign = ann.textAlign || 'left';
+                    const padding = 5;
 
-                    // Use hexToRgb defined above
-                    const color = ann.color ? hexToRgb(ann.color) : { r: 0, g: 0, b: 0 };
+                    // Create canvas at annotation size (what user sees on screen)
+                    const captureCanvas = document.createElement('canvas');
+                    captureCanvas.width = Math.ceil(ann.width);
+                    captureCanvas.height = Math.ceil(ann.height);
+                    const captureCtx = captureCanvas.getContext('2d');
 
-                    // Check if pixelation is enabled
-                    if (ann.pixelateLevel && ann.pixelateLevel > 0) {
-                        // Capture the exact rendered appearance from annotation canvas
-                        // First, we need to render this annotation to a temporary canvas exactly as it appears
-
-                        const pixelScale = pixelateLevels[ann.pixelateLevel].scale;
-                        const weight = ann.bold ? 'bold ' : '';
-                        const style = ann.italic ? 'italic ' : '';
-                        const family = ann.fontFamily || 'Inter';
-                        const annFontSize = ann.fontSize || 14;
-                        const lineHeight = annFontSize * 1.4;
-                        const textAlign = ann.textAlign || 'left';
-                        const padding = 5;
-
-                        // Create canvas at annotation size (what user sees on screen)
-                        const captureCanvas = document.createElement('canvas');
-                        captureCanvas.width = Math.ceil(ann.width);
-                        captureCanvas.height = Math.ceil(ann.height);
-                        const captureCtx = captureCanvas.getContext('2d');
-
-                        // Fill background if replace mode
-                        if (ann.type === 'replace' && ann.backgroundColor) {
-                            captureCtx.fillStyle = ann.backgroundColor;
-                            captureCtx.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
-                        } else {
-                            // Transparent background for add mode
-                            captureCtx.clearRect(0, 0, captureCanvas.width, captureCanvas.height);
-                        }
-
-                        // Calculate text position (relative to annotation)
-                        let textXRel;
-                        if (textAlign === 'center') {
-                            textXRel = ann.width / 2;
-                        } else if (textAlign === 'right') {
-                            textXRel = ann.width - padding;
-                        } else {
-                            textXRel = padding;
-                        }
-
-                        // Calculate lines for word wrap (with newline support)
-                        captureCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
-                        const lines = wrapTextWithNewlines(captureCtx, ann.text, ann.width - 10);
-
-                        // Calculate vertical centering
-                        const totalTextHeight = lines.length * lineHeight;
-                        const startYRel = (ann.height - totalTextHeight) / 2 + annFontSize;
-
-                        // Create pixelated version (same logic as canvas rendering)
-                        const pixelCanvas = document.createElement('canvas');
-                        pixelCanvas.width = Math.ceil(ann.width * pixelScale);
-                        pixelCanvas.height = Math.ceil(ann.height * pixelScale);
-                        const pixelCtx = pixelCanvas.getContext('2d');
-                        pixelCtx.imageSmoothingEnabled = false;
-
-                        // Fill background if needed
-                        if (ann.type === 'replace' && ann.backgroundColor) {
-                            pixelCtx.fillStyle = ann.backgroundColor;
-                            pixelCtx.fillRect(0, 0, pixelCanvas.width, pixelCanvas.height);
-                        }
-
-                        // Scale down and draw text
-                        pixelCtx.scale(pixelScale, pixelScale);
-                        pixelCtx.fillStyle = ann.color || '#000000';
-                        pixelCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
-                        pixelCtx.textAlign = textAlign;
-
-                        lines.forEach((line, index) => {
-                            pixelCtx.fillText(line, textXRel, startYRel + index * lineHeight);
-                        });
-
-                        // Scale up to capture canvas (creates pixelated effect)
-                        captureCtx.imageSmoothingEnabled = false;
-                        captureCtx.drawImage(pixelCanvas, 0, 0, captureCanvas.width, captureCanvas.height);
-
-                        // Embed as PNG in PDF
-                        const dataUrl = captureCanvas.toDataURL('image/png');
-                        const base64Data = dataUrl.split(',')[1];
-                        const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-                        const textImage = await pdfDoc.embedPng(imageBytes);
-
-                        page.drawImage(textImage, {
-                            x: pdfX,
-                            y: pdfY,
-                            width: pdfWidth,
-                            height: pdfHeight,
-                        });
-
-                        console.log('Drew pixelated text as image on page', ann.page);
+                    // Fill background if replace mode
+                    if (ann.type === 'replace' && ann.backgroundColor) {
+                        captureCtx.fillStyle = ann.backgroundColor;
+                        captureCtx.fillRect(0, 0, captureCanvas.width, captureCanvas.height);
                     } else {
-                        // Normal text rendering with multiline support
-                        const textAlign = ann.textAlign || 'left';
-                        const padding = 5 * scaleX;
-                        const lineHeight = pdfFontSize * 1.4;
-
-                        // Select font based on fontWeight (use bold for semibold, bold, extrabold)
-                        const isBold = ann.fontWeight !== undefined ? ann.fontWeight >= 1 : ann.bold;
-                        const font = isBold ? fontBold : fontRegular;
-
-                        // Split text by newlines and apply word wrap
-                        const textLines = safeText.split('\n');
-                        let allLines = [];
-
-                        textLines.forEach(paragraph => {
-                            if (paragraph.trim() === '') {
-                                allLines.push('');
-                                return;
-                            }
-
-                            // Simple word wrap for PDF
-                            const words = paragraph.split(' ');
-                            let currentLine = '';
-
-                            words.forEach(word => {
-                                const testLine = currentLine + word + ' ';
-                                const testWidth = font.widthOfTextAtSize(testLine, pdfFontSize);
-
-                                if (testWidth > pdfWidth - (10 * scaleX) && currentLine !== '') {
-                                    allLines.push(currentLine.trim());
-                                    currentLine = word + ' ';
-                                } else {
-                                    currentLine = testLine;
-                                }
-                            });
-
-                            if (currentLine.trim()) {
-                                allLines.push(currentLine.trim());
-                            }
-                        });
-
-                        // Calculate vertical centering
-                        const totalTextHeight = allLines.length * lineHeight;
-                        const startY = pdfY + pdfHeight - ((pdfHeight - totalTextHeight) / 2) - pdfFontSize;
-
-                        // Draw each line
-                        allLines.forEach((line, index) => {
-                            if (line === '') return; // Skip empty lines but maintain spacing
-
-                            const lineWidth = font.widthOfTextAtSize(line, pdfFontSize);
-                            let textX;
-
-                            if (textAlign === 'center') {
-                                textX = pdfX + (pdfWidth - lineWidth) / 2;
-                            } else if (textAlign === 'right') {
-                                textX = pdfX + pdfWidth - lineWidth - padding;
-                            } else {
-                                textX = pdfX + padding;
-                            }
-
-                            page.drawText(line, {
-                                x: textX,
-                                y: startY - (index * lineHeight),
-                                size: pdfFontSize,
-                                font: font,
-                                color: rgb(color.r, color.g, color.b),
-                            });
-                        });
-                    }
-                }
-            }
-
-            console.log('Text annotations processed. Processing', state.imageAnnotations.length, 'image annotations...');
-
-            // Process image annotations
-            for (const img of state.imageAnnotations) {
-                const pageIndex = img.page - 1;
-                if (pageIndex < 0 || pageIndex >= pages.length) continue;
-
-                const page = pages[pageIndex];
-                const { width, height } = page.getSize();
-
-                // Coordinate conversion
-                const pdfJsPage = await state.pdfDoc.getPage(img.page);
-                const viewport = pdfJsPage.getViewport({ scale: state.zoom * 1.5 });
-
-                const scaleX = width / viewport.width;
-                const scaleY = height / viewport.height;
-
-                const pdfX = img.x * scaleX;
-                const pdfY = height - (img.y * scaleY) - (img.height * scaleY);
-                const pdfWidth = img.width * scaleX;
-                const pdfHeight = img.height * scaleY;
-
-                try {
-                    // Convert Image element to base64
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-
-                    // Check for crop properties
-                    const hasCrop = (img.cropLeft || img.cropTop || img.cropRight || img.cropBottom);
-
-                    if (hasCrop) {
-                        // CROP MODE: Draw only the visible part
-                        const originalWidth = img.originalWidth || img.element.naturalWidth;
-                        const originalHeight = img.originalHeight || img.element.naturalHeight;
-
-                        // Source rectangle (the part of the original image to keep)
-                        const srcX = img.cropLeft || 0;
-                        const srcY = img.cropTop || 0;
-                        const srcWidth = originalWidth - (img.cropLeft || 0) - (img.cropRight || 0);
-                        const srcHeight = originalHeight - (img.cropTop || 0) - (img.cropBottom || 0);
-
-                        // Set canvas to the aspect ratio of the VISIBLE part
-                        canvas.width = srcWidth;
-                        canvas.height = srcHeight;
-
-                        // Draw cropped portion
-                        ctx.drawImage(
-                            img.element,
-                            srcX, srcY, srcWidth, srcHeight,
-                            0, 0, srcWidth, srcHeight
-                        );
-
-                        console.log(`Exporting cropped image: src=${srcX},${srcY} ${srcWidth}x${srcHeight}`);
-                    } else {
-                        // NORMAL MODE: Draw full image
-                        canvas.width = img.element.naturalWidth || img.element.width;
-                        canvas.height = img.element.naturalHeight || img.element.height;
-                        ctx.drawImage(img.element, 0, 0);
+                        // Transparent background for add mode
+                        captureCtx.clearRect(0, 0, captureCanvas.width, captureCanvas.height);
                     }
 
-                    // Get image data as data URL
-                    const dataUrl = canvas.toDataURL('image/png');
+                    // Calculate text position (relative to annotation)
+                    let textXRel;
+                    if (textAlign === 'center') {
+                        textXRel = ann.width / 2;
+                    } else if (textAlign === 'right') {
+                        textXRel = ann.width - padding;
+                    } else {
+                        textXRel = padding;
+                    }
+
+                    // Calculate lines for word wrap (with newline support)
+                    captureCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
+                    const lines = wrapTextWithNewlines(captureCtx, ann.text, ann.width - 10);
+
+                    // Calculate vertical centering
+                    const totalTextHeight = lines.length * lineHeight;
+                    const startYRel = (ann.height - totalTextHeight) / 2 + annFontSize;
+
+                    // Create pixelated version (same logic as canvas rendering)
+                    const pixelCanvas = document.createElement('canvas');
+                    pixelCanvas.width = Math.ceil(ann.width * pixelScale);
+                    pixelCanvas.height = Math.ceil(ann.height * pixelScale);
+                    const pixelCtx = pixelCanvas.getContext('2d');
+                    pixelCtx.imageSmoothingEnabled = false;
+
+                    // Fill background if needed
+                    if (ann.type === 'replace' && ann.backgroundColor) {
+                        pixelCtx.fillStyle = ann.backgroundColor;
+                        pixelCtx.fillRect(0, 0, pixelCanvas.width, pixelCanvas.height);
+                    }
+
+                    // Scale down and draw text
+                    pixelCtx.scale(pixelScale, pixelScale);
+                    pixelCtx.fillStyle = ann.color || '#000000';
+                    pixelCtx.font = `${style}${weight}${annFontSize}px "${family}"`;
+                    pixelCtx.textAlign = textAlign;
+
+                    lines.forEach((line, index) => {
+                        pixelCtx.fillText(line, textXRel, startYRel + index * lineHeight);
+                    });
+
+                    // Scale up to capture canvas (creates pixelated effect)
+                    captureCtx.imageSmoothingEnabled = false;
+                    captureCtx.drawImage(pixelCanvas, 0, 0, captureCanvas.width, captureCanvas.height);
+
+                    // Embed as PNG in PDF
+                    const dataUrl = captureCanvas.toDataURL('image/png');
                     const base64Data = dataUrl.split(',')[1];
                     const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                    const textImage = await pdfDoc.embedPng(imageBytes);
 
-                    // Embed image in PDF
-                    let embeddedImage;
-                    if (img.type === 'image/jpeg' || img.type === 'image/jpg') {
-                        embeddedImage = await pdfDoc.embedJpg(imageBytes);
-                    } else {
-                        embeddedImage = await pdfDoc.embedPng(imageBytes);
-                    }
-
-                    // Draw image on page
-                    page.drawImage(embeddedImage, {
+                    page.drawImage(textImage, {
                         x: pdfX,
                         y: pdfY,
                         width: pdfWidth,
                         height: pdfHeight,
                     });
 
-                    console.log('Embedded image on page', img.page, 'at', pdfX, pdfY);
-                } catch (imgError) {
-                    console.error('Error embedding image:', imgError);
-                    // Continue with other images even if one fails
+                    console.log('Drew pixelated text as image on page', ann.page);
+                } else {
+                    // Normal text rendering with multiline support
+                    const textAlign = ann.textAlign || 'left';
+                    const padding = 5 * scaleX;
+                    const lineHeight = pdfFontSize * 1.4;
+
+                    // Select font based on fontWeight (use bold for semibold, bold, extrabold)
+                    const isBold = ann.fontWeight !== undefined ? ann.fontWeight >= 1 : ann.bold;
+                    const font = isBold ? fontBold : fontRegular;
+
+                    // Split text by newlines and apply word wrap
+                    const textLines = safeText.split('\n');
+                    let allLines = [];
+
+                    textLines.forEach(paragraph => {
+                        if (paragraph.trim() === '') {
+                            allLines.push('');
+                            return;
+                        }
+
+                        // Simple word wrap for PDF
+                        const words = paragraph.split(' ');
+                        let currentLine = '';
+
+                        words.forEach(word => {
+                            const testLine = currentLine + word + ' ';
+                            const testWidth = font.widthOfTextAtSize(testLine, pdfFontSize);
+
+                            if (testWidth > pdfWidth - (10 * scaleX) && currentLine !== '') {
+                                allLines.push(currentLine.trim());
+                                currentLine = word + ' ';
+                            } else {
+                                currentLine = testLine;
+                            }
+                        });
+
+                        if (currentLine.trim()) {
+                            allLines.push(currentLine.trim());
+                        }
+                    });
+
+                    // Calculate vertical centering
+                    const totalTextHeight = allLines.length * lineHeight;
+                    const startY = pdfY + pdfHeight - ((pdfHeight - totalTextHeight) / 2) - pdfFontSize;
+
+                    // Draw each line
+                    allLines.forEach((line, index) => {
+                        if (line === '') return; // Skip empty lines but maintain spacing
+
+                        const lineWidth = font.widthOfTextAtSize(line, pdfFontSize);
+                        let textX;
+
+                        if (textAlign === 'center') {
+                            textX = pdfX + (pdfWidth - lineWidth) / 2;
+                        } else if (textAlign === 'right') {
+                            textX = pdfX + pdfWidth - lineWidth - padding;
+                        } else {
+                            textX = pdfX + padding;
+                        }
+
+                        page.drawText(line, {
+                            x: textX,
+                            y: startY - (index * lineHeight),
+                            size: pdfFontSize,
+                            font: font,
+                            color: rgb(color.r, color.g, color.b),
+                        });
+                    });
                 }
             }
+        }
 
-            console.log('All annotations processed. Saving PDF...');
+        console.log('Text annotations processed. Processing', state.imageAnnotations.length, 'image annotations...');
 
-            // Serialize the PDFDocument to bytes (a Uint8Array)
-            const pdfBytes = await pdfDoc.save();
-            console.log('PDF saved to bytes, size:', pdfBytes.length);
+        // Process image annotations
+        for (const img of state.imageAnnotations) {
+            const pageIndex = img.page - 1;
+            if (pageIndex < 0 || pageIndex >= pages.length) continue;
 
-            // Trigger download - using window.open for file:// protocol compatibility
-            const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-            const blobUrl = URL.createObjectURL(blob);
-            console.log('Blob URL created');
+            const page = pages[pageIndex];
+            const { width, height } = page.getSize();
 
-            // For file:// protocol, open in new window
-            if (window.location.protocol === 'file:') {
-                console.log('File protocol detected, opening PDF in new window...');
-                window.open(blobUrl, '_blank');
-                alert('PDF yeni sekmede açıldı. Kaydetmek için Ctrl+S veya sağ tık > Farklı Kaydet kullanın.');
-            } else {
-                // Standard download for http/https
-                const link = document.createElement('a');
-                link.href = blobUrl;
-                link.download = 'edited_document.pdf';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+            // Coordinate conversion
+            const pdfJsPage = await state.pdfDoc.getPage(img.page);
+            const viewport = pdfJsPage.getViewport({ scale: state.zoom * 1.5 });
+
+            const scaleX = width / viewport.width;
+            const scaleY = height / viewport.height;
+
+            const pdfX = img.x * scaleX;
+            const pdfY = height - (img.y * scaleY) - (img.height * scaleY);
+            const pdfWidth = img.width * scaleX;
+            const pdfHeight = img.height * scaleY;
+
+            try {
+                // Convert Image element to base64
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+
+                // Check for crop properties
+                const hasCrop = (img.cropLeft || img.cropTop || img.cropRight || img.cropBottom);
+
+                if (hasCrop) {
+                    // CROP MODE: Draw only the visible part
+                    const originalWidth = img.originalWidth || img.element.naturalWidth;
+                    const originalHeight = img.originalHeight || img.element.naturalHeight;
+
+                    // Source rectangle (the part of the original image to keep)
+                    const srcX = img.cropLeft || 0;
+                    const srcY = img.cropTop || 0;
+                    const srcWidth = originalWidth - (img.cropLeft || 0) - (img.cropRight || 0);
+                    const srcHeight = originalHeight - (img.cropTop || 0) - (img.cropBottom || 0);
+
+                    // Set canvas to the aspect ratio of the VISIBLE part
+                    canvas.width = srcWidth;
+                    canvas.height = srcHeight;
+
+                    // Draw cropped portion
+                    ctx.drawImage(
+                        img.element,
+                        srcX, srcY, srcWidth, srcHeight,
+                        0, 0, srcWidth, srcHeight
+                    );
+
+                    console.log(`Exporting cropped image: src=${srcX},${srcY} ${srcWidth}x${srcHeight}`);
+                } else {
+                    // NORMAL MODE: Draw full image
+                    canvas.width = img.element.naturalWidth || img.element.width;
+                    canvas.height = img.element.naturalHeight || img.element.height;
+                    ctx.drawImage(img.element, 0, 0);
+                }
+
+                // Get image data as data URL
+                const dataUrl = canvas.toDataURL('image/png');
+                const base64Data = dataUrl.split(',')[1];
+                const imageBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+
+                // Embed image in PDF
+                let embeddedImage;
+                if (img.type === 'image/jpeg' || img.type === 'image/jpg') {
+                    embeddedImage = await pdfDoc.embedJpg(imageBytes);
+                } else {
+                    embeddedImage = await pdfDoc.embedPng(imageBytes);
+                }
+
+                // Draw image on page
+                page.drawImage(embeddedImage, {
+                    x: pdfX,
+                    y: pdfY,
+                    width: pdfWidth,
+                    height: pdfHeight,
+                });
+
+                console.log('Embedded image on page', img.page, 'at', pdfX, pdfY);
+            } catch (imgError) {
+                console.error('Error embedding image:', imgError);
+                // Continue with other images even if one fails
             }
-
-            // Clean up after delay
-            setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
-            console.log('Download process completed!');
-
-        } catch (error) {
-            console.error('PDF generation error:', error);
-            alert('PDF oluşturulurken bir hata oluştu: ' + error.message);
-        }
-    });
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', (e) => {
-        if (e.ctrlKey || e.metaKey) {
-            switch (e.key) {
-                case '=':
-                case '+':
-                    e.preventDefault();
-                    setZoom(state.zoom + 0.25);
-                    break;
-                case '-':
-                    e.preventDefault();
-                    setZoom(state.zoom - 0.25);
-                    break;
-                case '0':
-                    e.preventDefault();
-                    setZoom(1.0);
-                    break;
-            }
         }
 
-        // Arrow keys for page navigation
-        if (e.key === 'ArrowLeft' && state.currentPage > 1) {
-            goToPage(state.currentPage - 1);
-        } else if (e.key === 'ArrowRight' && state.currentPage < state.totalPages) {
-            goToPage(state.currentPage + 1);
+        console.log('All annotations processed. Saving PDF...');
+
+        // Serialize the PDFDocument to bytes (a Uint8Array)
+        const pdfBytes = await pdfDoc.save();
+        console.log('PDF saved to bytes, size:', pdfBytes.length);
+
+        // Trigger download - using window.open for file:// protocol compatibility
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const blobUrl = URL.createObjectURL(blob);
+        console.log('Blob URL created');
+
+        // For file:// protocol, open in new window
+        if (window.location.protocol === 'file:') {
+            console.log('File protocol detected, opening PDF in new window...');
+            window.open(blobUrl, '_blank');
+            alert('PDF yeni sekmede açıldı. Kaydetmek için Ctrl+S veya sağ tık > Farklı Kaydet kullanın.');
+        } else {
+            // Standard download for http/https
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = 'edited_document.pdf';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         }
 
-        // ESC to close modal
-        if (e.key === 'Escape') {
-            closeTextModal();
-        }
-    });
+        // Clean up after delay
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+        console.log('Download process completed!');
 
-    // Make functions globally accessible for onclick handlers
-    window.editAnnotation = editAnnotation;
-    window.goToAnnotation = goToAnnotation;
-    window.closeTextModal = closeTextModal;
-    window.applyText = applyText;
+    } catch (error) {
+        console.error('PDF generation error:', error);
+        alert('PDF oluşturulurken bir hata oluştu: ' + error.message);
+    }
+});
 
-    // Initialize application
-    initTabs();
-    // Double click to confirm crop
-    annotationCanvas.addEventListener('dblclick', function (e) {
-        if (state.croppingImage) {
-            state.croppingImage = null;
-            updateAnnotationsList();
-            redrawAnnotations();
-            console.log('Crop confirmed via double click');
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey) {
+        switch (e.key) {
+            case '=':
+            case '+':
+                e.preventDefault();
+                setZoom(state.zoom + 0.25);
+                break;
+            case '-':
+                e.preventDefault();
+                setZoom(state.zoom - 0.25);
+                break;
+            case '0':
+                e.preventDefault();
+                setZoom(1.0);
+                break;
         }
-    });
+    }
+
+    // Arrow keys for page navigation
+    if (e.key === 'ArrowLeft' && state.currentPage > 1) {
+        goToPage(state.currentPage - 1);
+    } else if (e.key === 'ArrowRight' && state.currentPage < state.totalPages) {
+        goToPage(state.currentPage + 1);
+    }
+
+    // ESC to close modal
+    if (e.key === 'Escape') {
+        closeTextModal();
+    }
+});
+
+// Make functions globally accessible for onclick handlers
+window.editAnnotation = editAnnotation;
+window.goToAnnotation = goToAnnotation;
+window.closeTextModal = closeTextModal;
+window.applyText = applyText;
+
+// Initialize application
+initTabs();
+// Double click to confirm crop
+annotationCanvas.addEventListener('dblclick', function (e) {
+    if (state.croppingImage) {
+        state.croppingImage = null;
+        updateAnnotationsList();
+        redrawAnnotations();
+        console.log('Crop confirmed via double click');
+    }
+});
