@@ -1119,77 +1119,72 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
-// Coordinate Management: NORMALIZED SYSTEM (0.0 - 1.0)
-// This ensures annotations are "part of the PDF" and independent of zoom/resolution.
-// ALL coordinates (x, y, width, height) are now in BITMAP pixels.
-function ensureNormalizedCoordinates(ann) {
-    const width = annotationCanvas.width;   // Bitmap dimensions
-    const height = annotationCanvas.height;
+// =============================================================================
+// COORDINATE MANAGEMENT: PDF-BASED SYSTEM (Zoom Independent)
+// =============================================================================
+// Annotations are stored in PDF coordinates (points), not screen pixels.
+// PDF coordinates remain constant regardless of zoom level.
+// 
+// Conversion:
+//   pdfX = bitmapX / scale       (where scale = state.zoom * outputScale)
+//   bitmapX = pdfX * scale
+//
+// The outputScale (1.5) is used by PDF.js for high-DPI rendering.
+// =============================================================================
 
-    // Safety check ensuring canvas has size
-    if (width === 0 || height === 0) return;
+const OUTPUT_SCALE = 1.5; // Must match the value in renderPage()
 
-    if (ann.nx === undefined) {
-        // Normalize against Bitmap dimensions
-        ann.nx = ann.x / width;
-        ann.ny = ann.y / height;
-        ann.nw = ann.width / width;
-        ann.nh = ann.height / height;
+// Convert current bitmap coordinates to PDF coordinates and store them
+function saveToPdfCoordinates(ann) {
+    const scale = state.zoom * OUTPUT_SCALE;
 
-        // Font size is relative to HEIGHT for consistency
-        if (ann.fontSize) {
-            ann.nFontSize = ann.fontSize / height;
+    if (scale === 0) return; // Safety check
+
+    // Store PDF coordinates (zoom-independent)
+    ann.pdfX = ann.x / scale;
+    ann.pdfY = ann.y / scale;
+    ann.pdfWidth = ann.width / scale;
+    ann.pdfHeight = ann.height / scale;
+
+    if (ann.fontSize) {
+        ann.pdfFontSize = ann.fontSize / scale;
+    }
+}
+
+// Calculate bitmap coordinates from stored PDF coordinates
+function loadFromPdfCoordinates(ann) {
+    const scale = state.zoom * OUTPUT_SCALE;
+
+    // If PDF coordinates exist, calculate bitmap coordinates
+    if (ann.pdfX !== undefined) {
+        ann.x = ann.pdfX * scale;
+        ann.y = ann.pdfY * scale;
+        ann.width = ann.pdfWidth * scale;
+        ann.height = ann.pdfHeight * scale;
+
+        if (ann.pdfFontSize) {
+            ann.fontSize = ann.pdfFontSize * scale;
         }
+    } else {
+        // Migration: First time seeing this annotation, save current coords as PDF coords
+        // Assume current x/y are at current zoom level
+        saveToPdfCoordinates(ann);
+    }
+}
+
+// Legacy function names for compatibility (redirect to new system)
+function ensureNormalizedCoordinates(ann) {
+    if (ann.pdfX === undefined) {
+        saveToPdfCoordinates(ann);
     }
 }
 
 function updateNormalizedCoordinates(ann) {
-    const width = annotationCanvas.width;   // Bitmap dimensions
-    const height = annotationCanvas.height;
-
-    // Safety check
-    if (width === 0 || height === 0) return;
-
-    // Save current pixel position (Bitmap pixels) as normalized percentage
-    ann.nx = ann.x / width;
-    ann.ny = ann.y / height;
-    ann.nw = ann.width / width;
-    ann.nh = ann.height / height;
-
-    if (ann.fontSize) {
-        ann.nFontSize = ann.fontSize / height;
-    }
+    saveToPdfCoordinates(ann);
 }
 
-// Sync Pixel Coordinates from Normalized
-// Output: Bitmap Coordinates for Drawing
-// Call this before drawing to ensure x/y match current zoom level and resolution
 function syncPixelCoordinates(ann) {
-    const width = annotationCanvas.width;   // Bitmap Width (includes scaling factor e.g. 1.5x)
-    const height = annotationCanvas.height; // Bitmap Height
-
-    if (ann.nx !== undefined) {
-        ann.x = ann.nx * width;
-        ann.y = ann.ny * height;
-        ann.width = ann.nw * width;
-        ann.height = ann.nh * height;
-
-        if (ann.nFontSize) {
-            // Scale font size to match bitmap resolution
-            ann.fontSize = ann.nFontSize * height;
-        }
-    } else {
-        // Migration: create normalized coords from current values
-        ensureNormalizedCoordinates(ann);
-        // Then sync immediately if migration succeeded
-        if (ann.nx !== undefined) {
-            ann.x = ann.nx * width;
-            ann.y = ann.ny * height;
-            ann.width = ann.nw * width;
-            ann.height = ann.nh * height;
-            if (ann.nFontSize) ann.fontSize = ann.nFontSize * height;
-        }
-    }
+    loadFromPdfCoordinates(ann);
 }
 
 // Zoom Control
