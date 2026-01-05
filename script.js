@@ -2423,15 +2423,23 @@ function showTextPanel() {
 function closeTextPanel() {
     textEditorPanel.style.display = 'none';
 
-    // Restore all controls to visible state
-    if (textInput.parentElement) textInput.parentElement.style.display = 'block';
-    document.querySelectorAll('.control-row').forEach(row => {
-        if (!row.classList.contains('bg-color-row')) {
-            row.style.display = 'flex';
-        }
-    });
+    // Restore all controls to visible state using IDs
+    const textInputWrapper = document.getElementById('textInputWrapper');
+    const fontSizeRow = document.getElementById('fontSizeRow');
+    const colorStyleRow = document.getElementById('colorStyleRow');
+    const aiOptionRow = document.getElementById('aiOptionRow');
+    const bgColorRow = document.getElementById('bgColorRow');
 
-    if (state.currentAnnotation && !state.currentAnnotation.text && state.editingIndex === null) {
+    if (textInputWrapper) textInputWrapper.style.display = 'block';
+    if (fontSizeRow) fontSizeRow.style.display = 'flex';
+    if (colorStyleRow) colorStyleRow.style.display = 'flex';
+    if (aiOptionRow) aiOptionRow.style.display = 'flex';
+    if (bgColorRow) bgColorRow.style.display = 'none'; // Hide by default
+
+    // Reset editing state
+    state.editingIndex = null;
+
+    if (state.currentAnnotation && !state.currentAnnotation.text && state.currentAnnotation.type !== 'removeObject') {
         state.currentAnnotation = null;
         redrawAnnotations();
     }
@@ -2836,22 +2844,24 @@ function editAnnotation(index) {
     // Show panel instead of modal
     textEditorPanel.style.display = 'block';
 
+    // Get control elements by ID
+    const textInputWrapper = document.getElementById('textInputWrapper');
+    const fontSizeRow = document.getElementById('fontSizeRow');
+    const colorStyleRow = document.getElementById('colorStyleRow');
+    const aiOptionRow = document.getElementById('aiOptionRow');
+    const bgColorRow = document.getElementById('bgColorRow');
+    const bgColorInput = document.getElementById('bgColor');
+    const bgColorValue = document.getElementById('bgColorValue');
+
     // Handle removeObject differently - no text editing, only background color
     if (ann.type === 'removeObject') {
-        // Hide text-related controls
-        textInput.parentElement.style.display = 'none';
-        const fontRow = document.querySelector('.control-row:has(#fontFamily)');
-        const colorRow = document.querySelector('.control-row:has(#textColor)');
-        const aiOption = document.querySelector('.ai-option');
-        if (fontRow) fontRow.style.display = 'none';
-        if (colorRow) colorRow.style.display = 'none';
-        if (aiOption) aiOption.style.display = 'none';
+        // Hide ALL text-related controls
+        if (textInputWrapper) textInputWrapper.style.display = 'none';
+        if (fontSizeRow) fontSizeRow.style.display = 'none';
+        if (colorStyleRow) colorStyleRow.style.display = 'none';
+        if (aiOptionRow) aiOptionRow.style.display = 'none';
 
-        // Show background color control
-        const bgColorRow = document.getElementById('bgColorRow');
-        const bgColorInput = document.getElementById('bgColor');
-        const bgColorValue = document.getElementById('bgColorValue');
-
+        // Show ONLY background color control
         if (bgColorRow) {
             bgColorRow.style.display = 'flex';
             const bgColor = ann.backgroundColor || '#ffffff';
@@ -2860,13 +2870,10 @@ function editAnnotation(index) {
         }
     } else {
         // Show all text controls for normal annotations
-        textInput.parentElement.style.display = 'block';
-        const fontRow = document.querySelector('.control-row:has(#fontFamily)');
-        const colorRow = document.querySelector('.control-row:has(#textColor)');
-        const aiOption = document.querySelector('.ai-option');
-        if (fontRow) fontRow.style.display = 'flex';
-        if (colorRow) colorRow.style.display = 'flex';
-        if (aiOption) aiOption.style.display = 'flex';
+        if (textInputWrapper) textInputWrapper.style.display = 'block';
+        if (fontSizeRow) fontSizeRow.style.display = 'flex';
+        if (colorStyleRow) colorStyleRow.style.display = 'flex';
+        if (aiOptionRow) aiOptionRow.style.display = 'flex';
 
         // Fill text inputs
         textInput.value = ann.text || '';
@@ -2888,12 +2895,9 @@ function editAnnotation(index) {
         }
 
         // Show/hide background color based on type
-        const bgColorRow = document.getElementById('bgColorRow');
         if (bgColorRow) {
             if (ann.type === 'replace') {
                 bgColorRow.style.display = 'flex';
-                const bgColorInput = document.getElementById('bgColor');
-                const bgColorValue = document.getElementById('bgColorValue');
                 const bgColor = ann.backgroundColor || '#ffffff';
                 if (bgColorInput) bgColorInput.value = bgColor;
                 if (bgColorValue) bgColorValue.textContent = bgColor.toUpperCase();

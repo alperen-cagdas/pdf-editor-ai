@@ -109,10 +109,12 @@
                 <div id="textEditorPanel" class="text-editor-panel" style="display: none;">
                     <h3>Metin Düzenle</h3>
                     <div class="editor-content">
-                        <textarea id="textInput" placeholder="Metni buraya yazın..."></textarea>
+                        <div id="textInputWrapper">
+                            <textarea id="textInput" placeholder="Metni buraya yazın..."></textarea>
+                        </div>
 
                         <div class="editor-controls">
-                            <div class="control-row">
+                            <div class="control-row" id="fontSizeRow">
                                 <div class="control-group">
                                     <label>Font</label>
                                     <select id="fontFamily">
@@ -130,7 +132,7 @@
                                 </div>
                             </div>
 
-                            <div class="control-row">
+                            <div class="control-row" id="colorStyleRow">
                                 <div class="control-group">
                                     <label>Renk</label>
                                     <div class="color-picker-wrapper">
@@ -228,7 +230,7 @@
                                 </div>
                             </div>
 
-                            <div class="control-row ai-option">
+                            <div class="control-row ai-option" id="aiOptionRow">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="useAI" checked>
                                     <span>AI ile font boyutunu eşleştir</span>
