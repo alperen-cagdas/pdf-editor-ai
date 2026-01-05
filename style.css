@@ -986,7 +986,8 @@ button.password-toggle svg {
     border-radius: 4px;
 }
 
-.text-editor-panel #colorValue {
+.text-editor-panel #colorValue,
+.text-editor-panel #bgColorValue {
     font-family: monospace;
     font-size: 0.75rem;
     color: var(--text-secondary);
