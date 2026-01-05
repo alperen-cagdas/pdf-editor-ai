@@ -2422,6 +2422,15 @@ function showTextPanel() {
 
 function closeTextPanel() {
     textEditorPanel.style.display = 'none';
+
+    // Restore all controls to visible state
+    if (textInput.parentElement) textInput.parentElement.style.display = 'block';
+    document.querySelectorAll('.control-row').forEach(row => {
+        if (!row.classList.contains('bg-color-row')) {
+            row.style.display = 'flex';
+        }
+    });
+
     if (state.currentAnnotation && !state.currentAnnotation.text && state.editingIndex === null) {
         state.currentAnnotation = null;
         redrawAnnotations();
@@ -2436,7 +2445,8 @@ async function applyText() {
     const text = textInput.value.trim();
     const useAI = document.getElementById('useAI').checked;
 
-    if (!text) {
+    // Skip text validation for removeObject (only needs background color)
+    if (!text && state.currentAnnotation?.type !== 'removeObject') {
         alert('Lütfen metin girin.');
         return;
     }
@@ -2710,12 +2720,10 @@ function updateAnnotationsList() {
         html += '</div>';
         html += '<div class="annotation-actions">';
 
-        // Only show edit button for text annotations, not for removeObject
-        if (ann.type !== 'removeObject') {
-            html += '<button class="edit-btn" onclick="event.stopPropagation(); window.editAnnotation(' + index + ')" title="Düzenle">';
-            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
-            html += '</button>';
-        }
+        // Show edit button for all annotation types (including removeObject for bg color editing)
+        html += '<button class="edit-btn" onclick="event.stopPropagation(); window.editAnnotation(' + index + ')" title="Düzenle">';
+        html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>';
+        html += '</button>';
 
         html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDelete(' + index + ')" title="Sil">';
         html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
@@ -2828,26 +2836,68 @@ function editAnnotation(index) {
     // Show panel instead of modal
     textEditorPanel.style.display = 'block';
 
-    // Fill inputs
-    textInput.value = ann.text || '';
-    fontSizeInput.value = ann.fontSize || 14;
-    fontFamilySelect.value = ann.fontFamily || 'Inter';
-    textColorInput.value = ann.color || '#000000';
-    colorValueLabel.textContent = (ann.color || '#000000').toUpperCase();
-    fontBoldCheckbox.checked = ann.bold || false;
-    fontItalicCheckbox.checked = ann.italic || false;
+    // Handle removeObject differently - no text editing, only background color
+    if (ann.type === 'removeObject') {
+        // Hide text-related controls
+        textInput.parentElement.style.display = 'none';
+        document.querySelector('.control-row:has(#fontFamily)')?.style.display = 'none';
+        document.querySelector('.control-row:has(#textColor)')?.style.display = 'none';
+        document.querySelector('.ai-option')?.style.display = 'none';
 
-    // Set text alignment
-    const alignment = ann.textAlign || 'left';
-    if (alignment === 'center') {
-        alignCenterRadio.checked = true;
-    } else if (alignment === 'right') {
-        alignRightRadio.checked = true;
+        // Show background color control
+        const bgColorRow = document.getElementById('bgColorRow');
+        const bgColorInput = document.getElementById('bgColor');
+        const bgColorValue = document.getElementById('bgColorValue');
+
+        if (bgColorRow) {
+            bgColorRow.style.display = 'flex';
+            const bgColor = ann.backgroundColor || '#ffffff';
+            if (bgColorInput) bgColorInput.value = bgColor;
+            if (bgColorValue) bgColorValue.textContent = bgColor.toUpperCase();
+        }
     } else {
-        alignLeftRadio.checked = true;
-    }
+        // Show all text controls for normal annotations
+        textInput.parentElement.style.display = 'block';
+        document.querySelector('.control-row:has(#fontFamily)')?.style.display = 'flex';
+        document.querySelector('.control-row:has(#textColor)')?.style.display = 'flex';
+        document.querySelector('.ai-option')?.style.display = 'flex';
 
-    textInput.focus();
+        // Fill text inputs
+        textInput.value = ann.text || '';
+        fontSizeInput.value = ann.fontSize || 14;
+        fontFamilySelect.value = ann.fontFamily || 'Inter';
+        textColorInput.value = ann.color || '#000000';
+        colorValueLabel.textContent = (ann.color || '#000000').toUpperCase();
+        fontBoldCheckbox.checked = ann.bold || false;
+        fontItalicCheckbox.checked = ann.italic || false;
+
+        // Set text alignment
+        const alignment = ann.textAlign || 'left';
+        if (alignment === 'center') {
+            alignCenterRadio.checked = true;
+        } else if (alignment === 'right') {
+            alignRightRadio.checked = true;
+        } else {
+            alignLeftRadio.checked = true;
+        }
+
+        // Show/hide background color based on type
+        const bgColorRow = document.getElementById('bgColorRow');
+        if (bgColorRow) {
+            if (ann.type === 'replace') {
+                bgColorRow.style.display = 'flex';
+                const bgColorInput = document.getElementById('bgColor');
+                const bgColorValue = document.getElementById('bgColorValue');
+                const bgColor = ann.backgroundColor || '#ffffff';
+                if (bgColorInput) bgColorInput.value = bgColor;
+                if (bgColorValue) bgColorValue.textContent = bgColor.toUpperCase();
+            } else {
+                bgColorRow.style.display = 'none';
+            }
+        }
+
+        textInput.focus();
+    }
 
     // Scroll panel into view
     textEditorPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
