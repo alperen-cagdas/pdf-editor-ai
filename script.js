@@ -2840,9 +2840,12 @@ function editAnnotation(index) {
     if (ann.type === 'removeObject') {
         // Hide text-related controls
         textInput.parentElement.style.display = 'none';
-        document.querySelector('.control-row:has(#fontFamily)')?.style.display = 'none';
-        document.querySelector('.control-row:has(#textColor)')?.style.display = 'none';
-        document.querySelector('.ai-option')?.style.display = 'none';
+        const fontRow = document.querySelector('.control-row:has(#fontFamily)');
+        const colorRow = document.querySelector('.control-row:has(#textColor)');
+        const aiOption = document.querySelector('.ai-option');
+        if (fontRow) fontRow.style.display = 'none';
+        if (colorRow) colorRow.style.display = 'none';
+        if (aiOption) aiOption.style.display = 'none';
 
         // Show background color control
         const bgColorRow = document.getElementById('bgColorRow');
@@ -2858,9 +2861,12 @@ function editAnnotation(index) {
     } else {
         // Show all text controls for normal annotations
         textInput.parentElement.style.display = 'block';
-        document.querySelector('.control-row:has(#fontFamily)')?.style.display = 'flex';
-        document.querySelector('.control-row:has(#textColor)')?.style.display = 'flex';
-        document.querySelector('.ai-option')?.style.display = 'flex';
+        const fontRow = document.querySelector('.control-row:has(#fontFamily)');
+        const colorRow = document.querySelector('.control-row:has(#textColor)');
+        const aiOption = document.querySelector('.ai-option');
+        if (fontRow) fontRow.style.display = 'flex';
+        if (colorRow) colorRow.style.display = 'flex';
+        if (aiOption) aiOption.style.display = 'flex';
 
         // Fill text inputs
         textInput.value = ann.text || '';
