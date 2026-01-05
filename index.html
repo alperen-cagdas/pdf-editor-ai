@@ -212,6 +212,25 @@
                                     <span>AI ile font boyutunu eşleştir</span>
                                 </label>
                             </div>
+
+                            <!-- Background Color Control - Only for replace/removeObject -->
+                            <div class="control-row bg-color-row" id="bgColorRow" style="display: none;">
+                                <div class="control-group">
+                                    <label>Arka Plan Rengi</label>
+                                    <div class="color-picker-wrapper">
+                                        <input type="color" id="bgColor" value="#ffffff">
+                                        <span id="bgColorValue">#FFFFFF</span>
+                                        <button id="bgEyedropperBtn" class="eyedropper-btn"
+                                            title="Canvas'tan arka plan rengi al">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2">
+                                                <path
+                                                    d="M2 22l1-1h3l9-9M20.71 5.63l-2.34-2.34a1 1 0 00-1.41 0l-3.12 3.12-1.93-1.91-1.41 1.41 1.42 1.42L3 16.25V21h4.75l8.92-8.92 1.42 1.42 1.41-1.41-1.92-1.92 3.12-3.12a1 1 0 00.01-1.42z" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <div class="editor-actions">

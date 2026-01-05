@@ -341,6 +341,62 @@ annotationCanvas.addEventListener('click', (e) => {
     updateLivePreview();
 });
 
+// Background Color Eyedropper functionality
+let bgEyedropperActive = false;
+const bgEyedropperBtn = document.getElementById('bgEyedropperBtn');
+const bgColorInput = document.getElementById('bgColor');
+const bgColorValue = document.getElementById('bgColorValue');
+
+if (bgEyedropperBtn) {
+    bgEyedropperBtn.addEventListener('click', () => {
+        bgEyedropperActive = !bgEyedropperActive;
+        bgEyedropperBtn.classList.toggle('active', bgEyedropperActive);
+        if (bgEyedropperActive) {
+            annotationCanvas.style.cursor = 'crosshair';
+        } else {
+            annotationCanvas.style.cursor = 'default';
+        }
+    });
+}
+
+// Background Eyedropper color picking from canvas
+annotationCanvas.addEventListener('click', (e) => {
+    if (!bgEyedropperActive) return;
+
+    const rect = pdfCanvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Get pixel color from PDF canvas
+    const pixel = pdfCtx.getImageData(Math.round(x), Math.round(y), 1, 1).data;
+    const hex = '#' + [pixel[0], pixel[1], pixel[2]].map(c => c.toString(16).padStart(2, '0')).join('');
+
+    if (bgColorInput) bgColorInput.value = hex;
+    if (bgColorValue) bgColorValue.textContent = hex.toUpperCase();
+
+    // Deactivate eyedropper
+    bgEyedropperActive = false;
+    if (bgEyedropperBtn) bgEyedropperBtn.classList.remove('active');
+    annotationCanvas.style.cursor = 'default';
+
+    // Update current annotation background color
+    if (state.currentAnnotation) {
+        state.currentAnnotation.backgroundColor = hex;
+    }
+    updateLivePreview();
+});
+
+// Background Color Input change event
+if (bgColorInput) {
+    bgColorInput.addEventListener('input', (e) => {
+        if (bgColorValue) bgColorValue.textContent = e.target.value.toUpperCase();
+        if (state.currentAnnotation) {
+            state.currentAnnotation.backgroundColor = e.target.value;
+        }
+        updateLivePreview();
+    });
+}
+
 // Real-time preview - update canvas when text input changes
 textInput.addEventListener('input', updateLivePreview);
 fontFamilySelect.addEventListener('change', updateLivePreview);
@@ -1882,8 +1938,9 @@ function handleMouseUp(e) {
 
         // Only process if area is significant
         if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
-            // Detect background color from the selected region
-            const backgroundColor = detectBackgroundColor(state.currentAnnotation);
+            // Use click point color (captured in mouseDown) or detect from region
+            const clickPointColor = state.currentAnnotation.backgroundColor;
+            const backgroundColor = detectBackgroundColor(state.currentAnnotation, clickPointColor);
             console.log('Detected background color:', backgroundColor);
 
             // Create annotation that covers the area with detected background
@@ -1925,9 +1982,10 @@ function handleMouseUp(e) {
 
         // Only show modal if selection is significant
         if (state.currentAnnotation.width > 10 && state.currentAnnotation.height > 10) {
-            // Detect background color for replace mode (so we can cover with the right color)
+            // Detect background color for replace mode (use click point as reference)
             if (state.activeTool === 'replace') {
-                const backgroundColor = detectBackgroundColor(state.currentAnnotation);
+                const clickPointColor = state.currentAnnotation.backgroundColor;
+                const backgroundColor = detectBackgroundColor(state.currentAnnotation, clickPointColor);
                 state.currentAnnotation.backgroundColor = backgroundColor;
                 console.log('Detected background color for replace:', backgroundColor);
             }
@@ -1960,31 +2018,40 @@ function getColorAtPoint(x, y) {
     }
 }
 
-// Detect background color from a region - samples from corners which are usually background
-function detectBackgroundColor(annotation) {
+// Detect background color from a region - enhanced algorithm
+// Prioritizes initial click point and samples edges for most common color
+function detectBackgroundColor(annotation, clickPointColor = null) {
     try {
         const x = Math.round(annotation.x);
         const y = Math.round(annotation.y);
         const w = Math.round(annotation.width);
         const h = Math.round(annotation.height);
 
-        // Sample points: 4 corners + 4 edge midpoints
+        // If we have the click point color, use it as the primary reference
+        if (clickPointColor && clickPointColor !== '#ffffff') {
+            console.log('Using click point color:', clickPointColor);
+            return clickPointColor;
+        }
+
+        // Sample points: 4 corners + 4 edge midpoints + 4 additional edge points
         const samplePoints = [
-            [0, 0],           // Top-left corner
-            [w - 1, 0],       // Top-right corner
-            [0, h - 1],       // Bottom-left corner
-            [w - 1, h - 1],   // Bottom-right corner
-            [Math.floor(w / 2), 0],         // Top center
-            [Math.floor(w / 2), h - 1],     // Bottom center
-            [0, Math.floor(h / 2)],         // Left center
-            [w - 1, Math.floor(h / 2)]      // Right center
+            // Corners
+            [0, 0], [w - 1, 0], [0, h - 1], [w - 1, h - 1],
+            // Edge midpoints
+            [Math.floor(w / 2), 0], [Math.floor(w / 2), h - 1],
+            [0, Math.floor(h / 2)], [w - 1, Math.floor(h / 2)],
+            // Additional edge samples (1/4 and 3/4 positions)
+            [Math.floor(w / 4), 0], [Math.floor(3 * w / 4), 0],
+            [Math.floor(w / 4), h - 1], [Math.floor(3 * w / 4), h - 1],
+            [0, Math.floor(h / 4)], [0, Math.floor(3 * h / 4)],
+            [w - 1, Math.floor(h / 4)], [w - 1, Math.floor(3 * h / 4)]
         ];
 
         const imageData = pdfCtx.getImageData(x, y, w, h);
         const pixels = imageData.data;
 
-        let totalR = 0, totalG = 0, totalB = 0;
-        let validSamples = 0;
+        // Collect all sampled colors
+        const colorCounts = {};
 
         for (const [px, py] of samplePoints) {
             if (px >= 0 && px < w && py >= 0 && py < h) {
@@ -1996,26 +2063,35 @@ function detectBackgroundColor(annotation) {
 
                 // Only count non-transparent pixels
                 if (a >= 128) {
-                    totalR += r;
-                    totalG += g;
-                    totalB += b;
-                    validSamples++;
+                    // Round to nearest 5 to group similar colors
+                    const rRound = Math.round(r / 5) * 5;
+                    const gRound = Math.round(g / 5) * 5;
+                    const bRound = Math.round(b / 5) * 5;
+                    const colorKey = `${rRound},${gRound},${bRound}`;
+
+                    if (!colorCounts[colorKey]) {
+                        colorCounts[colorKey] = { count: 0, r: rRound, g: gRound, b: bRound };
+                    }
+                    colorCounts[colorKey].count++;
                 }
             }
         }
 
-        // Calculate average color
-        let bgColor = '#ffffff'; // Default white
+        // Find the most common color (mode)
+        let maxCount = 0;
+        let dominantColor = { r: 255, g: 255, b: 255 };
 
-        if (validSamples > 0) {
-            const avgR = Math.round(totalR / validSamples);
-            const avgG = Math.round(totalG / validSamples);
-            const avgB = Math.round(totalB / validSamples);
-
-            bgColor = '#' + [avgR, avgG, avgB].map(c => c.toString(16).padStart(2, '0')).join('');
+        for (const key in colorCounts) {
+            if (colorCounts[key].count > maxCount) {
+                maxCount = colorCounts[key].count;
+                dominantColor = colorCounts[key];
+            }
         }
 
-        console.log('Background color detected:', bgColor, '(from', validSamples, 'samples)');
+        const bgColor = '#' + [dominantColor.r, dominantColor.g, dominantColor.b]
+            .map(c => Math.min(255, Math.max(0, c)).toString(16).padStart(2, '0')).join('');
+
+        console.log('Background color detected:', bgColor, '(from', maxCount, 'matching samples)');
         return bgColor;
     } catch (error) {
         console.error('Error detecting background color:', error);
@@ -2318,6 +2394,26 @@ function showTextPanel() {
         boldToggleBtn.setAttribute('data-level', '0');
     }
 
+    // Background Color Control - Show only for replace/removeObject
+    const bgColorRow = document.getElementById('bgColorRow');
+    const bgColorInput = document.getElementById('bgColor');
+    const bgColorValue = document.getElementById('bgColorValue');
+
+    if (bgColorRow && state.currentAnnotation) {
+        const annType = state.currentAnnotation.type;
+        if (annType === 'replace' || annType === 'removeObject') {
+            bgColorRow.style.display = 'flex';
+            // Set current background color value
+            const bgColor = state.currentAnnotation.backgroundColor || '#ffffff';
+            bgColorInput.value = bgColor;
+            bgColorValue.textContent = bgColor.toUpperCase();
+        } else {
+            bgColorRow.style.display = 'none';
+        }
+    } else if (bgColorRow) {
+        bgColorRow.style.display = 'none';
+    }
+
     textInput.focus();
 
     // Scroll panel into view
@@ -2358,6 +2454,12 @@ async function applyText() {
     state.currentAnnotation.textAlign = document.querySelector('input[name="textAlign"]:checked')?.value || 'left';
     // Save pixelation level
     state.currentAnnotation.pixelateLevel = currentPixelateLevel;
+
+    // Save background color from manual picker (for replace/removeObject)
+    const bgColorInput = document.getElementById('bgColor');
+    if (bgColorInput && (state.currentAnnotation.type === 'replace' || state.currentAnnotation.type === 'removeObject')) {
+        state.currentAnnotation.backgroundColor = bgColorInput.value;
+    }
 
     // Use AI to match font size
     if (useAI && state.apiKey) {
