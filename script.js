@@ -2852,6 +2852,16 @@ function editAnnotation(index) {
     const bgColorRow = document.getElementById('bgColorRow');
     const bgColorInput = document.getElementById('bgColor');
     const bgColorValue = document.getElementById('bgColorValue');
+    const panelTitle = document.getElementById('editorPanelTitle');
+
+    // Set panel title based on annotation type
+    if (panelTitle) {
+        if (ann.type === 'removeObject') {
+            panelTitle.textContent = 'Obje Kaldır';
+        } else {
+            panelTitle.textContent = 'Metin Düzenle';
+        }
+    }
 
     // Handle removeObject differently - no text editing, only background color
     if (ann.type === 'removeObject') {
