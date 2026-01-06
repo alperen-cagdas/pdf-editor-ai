@@ -1892,8 +1892,18 @@ function handleMouseMove(e) {
 
     // Shape tool preview
     if (state.activeTool === 'shape' && state.currentShape) {
-        state.currentShape.width = currentX - state.startX;
-        state.currentShape.height = currentY - state.startY;
+        let width = currentX - state.startX;
+        let height = currentY - state.startY;
+
+        // Shift key constraint for perfect square/circle
+        if (e.shiftKey && (state.currentShape.shapeType === 'rectangle' || state.currentShape.shapeType === 'circle')) {
+            const maxDim = Math.max(Math.abs(width), Math.abs(height));
+            width = maxDim * Math.sign(width || 1);
+            height = maxDim * Math.sign(height || 1);
+        }
+
+        state.currentShape.width = width;
+        state.currentShape.height = height;
 
         redrawAnnotations();
 
@@ -2934,33 +2944,7 @@ function updateAnnotationsList() {
         html += '</div>';
     });
 
-    // Shape annotations
-    if (state.shapeAnnotations) {
-        state.shapeAnnotations.forEach((shape, index) => {
-            const shapeNames = {
-                'rectangle': 'Dikdörtgen',
-                'circle': 'Daire',
-                'line': 'Çizgi',
-                'arrow': 'Ok'
-            };
-            const shapeName = shapeNames[shape.shapeType] || 'Şekil';
-
-            html += '<div class="annotation-item" onclick="window.goToShapeAnnotation(' + index + ')">';
-            html += '<div>';
-            html += '<div class="annotation-text">';
-            html += '<span class="badge shape">' + shapeName + '</span>';
-            html += shapeName + ' #' + (index + 1);
-            html += '</div>';
-            html += '<div class="annotation-meta">Sayfa ' + shape.page + ' • ' + (shape.fillStyle === 'fill' ? 'Dolu' : 'Çizgi') + ' • ' + shape.color + '</div>';
-            html += '</div>';
-            html += '<div class="annotation-actions">';
-            html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDeleteShape(' + index + ')" title="Sil">';
-            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
-            html += '</button>';
-            html += '</div>';
-            html += '</div>';
-        });
-    }
+    // Shape annotations are not shown in the list (managed via canvas only)
 
     annotationsList.innerHTML = html;
 }
@@ -3823,3 +3807,145 @@ setActiveTool = function (tool) {
 window.redrawShapes = redrawShapes;
 window.drawShape = drawShape;
 window.shapeToolState = shapeToolState;
+
+// ================================
+// Shape Keyboard and Mouse Controls
+// ================================
+
+// Clipboard for shape copy/paste
+let shapeClipboard = null;
+
+// Delete selected shape with Del key
+document.addEventListener('keydown', (e) => {
+    // Delete key - delete selected shape
+    if (e.key === 'Delete' && state.selectedShape && state.shapeAnnotations) {
+        const index = state.shapeAnnotations.indexOf(state.selectedShape);
+        if (index > -1) {
+            state.shapeAnnotations.splice(index, 1);
+            state.selectedShape = null;
+            redrawAnnotations();
+            console.log('Shape deleted');
+        }
+    }
+
+    // Ctrl+C - copy selected shape
+    if (e.ctrlKey && e.key === 'c' && state.selectedShape) {
+        shapeClipboard = { ...state.selectedShape };
+        console.log('Shape copied to clipboard');
+    }
+
+    // Ctrl+V - paste shape from clipboard
+    if (e.ctrlKey && e.key === 'v' && shapeClipboard && state.pdfDoc) {
+        const newShape = { ...shapeClipboard };
+        // Offset the pasted shape slightly
+        newShape.x += 20;
+        newShape.y += 20;
+        newShape.page = state.currentPage;
+
+        // Update normalized coordinates
+        updateNormalizedCoordinates(newShape);
+
+        if (!state.shapeAnnotations) {
+            state.shapeAnnotations = [];
+        }
+        state.shapeAnnotations.push(newShape);
+        state.selectedShape = newShape;
+
+        // Update clipboard for next paste
+        shapeClipboard = { ...newShape };
+
+        redrawAnnotations();
+        console.log('Shape pasted');
+    }
+
+    // Escape - deselect shape
+    if (e.key === 'Escape' && state.selectedShape) {
+        state.selectedShape = null;
+        state.resizingShape = null;
+        redrawAnnotations();
+    }
+});
+
+// Double-click on shape to enable resize mode
+annotationCanvas.addEventListener('dblclick', (e) => {
+    if (state.activeTool !== 'move') return;
+    if (!state.shapeAnnotations) return;
+
+    const rect = annotationCanvas.getBoundingClientRect();
+    const scaleX = annotationCanvas.width / rect.width;
+    const scaleY = annotationCanvas.height / rect.height;
+    const clickX = (e.clientX - rect.left) * scaleX;
+    const clickY = (e.clientY - rect.top) * scaleY;
+
+    // Find clicked shape
+    const clickedShape = state.shapeAnnotations
+        .filter(shape => shape.page === state.currentPage)
+        .slice().reverse()
+        .find(shape => {
+            if (shape.shapeType === 'line' || shape.shapeType === 'arrow') {
+                const x1 = shape.x, y1 = shape.y;
+                const x2 = shape.x + shape.width, y2 = shape.y + shape.height;
+                return pointToLineDistance(clickX, clickY, x1, y1, x2, y2) < 10;
+            }
+            return clickX >= shape.x && clickX <= shape.x + Math.abs(shape.width) &&
+                clickY >= shape.y && clickY <= shape.y + Math.abs(shape.height);
+        });
+
+    if (clickedShape) {
+        state.selectedShape = clickedShape;
+        state.resizingShape = clickedShape;
+        clickedShape.resizeMode = true;
+        redrawAnnotations();
+        console.log('Shape resize mode enabled');
+    }
+});
+
+// Shape resize handles
+function getShapeResizeEdge(x, y, shape) {
+    if (!shape || !shape.resizeMode) return null;
+
+    const handleSize = 8;
+    const sx = shape.x;
+    const sy = shape.y;
+    const sw = Math.abs(shape.width);
+    const sh = Math.abs(shape.height);
+
+    // Corner handles
+    if (Math.abs(x - sx) < handleSize && Math.abs(y - sy) < handleSize) return 'nw';
+    if (Math.abs(x - (sx + sw)) < handleSize && Math.abs(y - sy) < handleSize) return 'ne';
+    if (Math.abs(x - sx) < handleSize && Math.abs(y - (sy + sh)) < handleSize) return 'sw';
+    if (Math.abs(x - (sx + sw)) < handleSize && Math.abs(y - (sy + sh)) < handleSize) return 'se';
+
+    // Edge handles
+    if (Math.abs(y - sy) < handleSize && x > sx && x < sx + sw) return 'n';
+    if (Math.abs(y - (sy + sh)) < handleSize && x > sx && x < sx + sw) return 's';
+    if (Math.abs(x - sx) < handleSize && y > sy && y < sy + sh) return 'w';
+    if (Math.abs(x - (sx + sw)) < handleSize && y > sy && y < sy + sh) return 'e';
+
+    return null;
+}
+
+// Enhanced drawShape to show resize handles
+const originalDrawShape = drawShape;
+window.drawShape = function (ctx, shape, isPreview = false) {
+    originalDrawShape(ctx, shape, isPreview);
+
+    // Draw resize handles if in resize mode
+    if (shape.resizeMode && !isPreview) {
+        const handleSize = 6;
+        const sx = shape.x;
+        const sy = shape.y;
+        const sw = Math.abs(shape.width);
+        const sh = Math.abs(shape.height);
+
+        ctx.fillStyle = '#667eea';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+
+        // Draw 4 corner handles
+        [[sx, sy], [sx + sw, sy], [sx, sy + sh], [sx + sw, sy + sh]].forEach(([hx, hy]) => {
+            ctx.fillRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+            ctx.strokeRect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize);
+        });
+    }
+};
