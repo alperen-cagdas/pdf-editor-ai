@@ -4135,10 +4135,9 @@ document.addEventListener('keydown', (e) => {
 });
 
 
-// Double-click on shape to enable resize mode
+// Double-click on shape to enable resize mode, or on empty area to deselect
 annotationCanvas.addEventListener('dblclick', (e) => {
     if (state.activeTool !== 'move') return;
-    if (!state.shapeAnnotations) return;
 
     const rect = annotationCanvas.getBoundingClientRect();
     const scaleX = annotationCanvas.width / rect.width;
@@ -4147,25 +4146,40 @@ annotationCanvas.addEventListener('dblclick', (e) => {
     const clickY = (e.clientY - rect.top) * scaleY;
 
     // Find clicked shape
-    const clickedShape = state.shapeAnnotations
-        .filter(shape => shape.page === state.currentPage)
-        .slice().reverse()
-        .find(shape => {
-            if (shape.shapeType === 'line' || shape.shapeType === 'arrow') {
-                const x1 = shape.x, y1 = shape.y;
-                const x2 = shape.x + shape.width, y2 = shape.y + shape.height;
-                return pointToLineDistance(clickX, clickY, x1, y1, x2, y2) < 10;
-            }
-            return clickX >= shape.x && clickX <= shape.x + Math.abs(shape.width) &&
-                clickY >= shape.y && clickY <= shape.y + Math.abs(shape.height);
-        });
+    let clickedShape = null;
+    if (state.shapeAnnotations) {
+        clickedShape = state.shapeAnnotations
+            .filter(shape => shape.page === state.currentPage)
+            .slice().reverse()
+            .find(shape => {
+                if (shape.shapeType === 'line' || shape.shapeType === 'arrow') {
+                    const x1 = shape.x, y1 = shape.y;
+                    const x2 = shape.x + shape.width, y2 = shape.y + shape.height;
+                    return pointToLineDistance(clickX, clickY, x1, y1, x2, y2) < 10;
+                }
+                return clickX >= shape.x && clickX <= shape.x + Math.abs(shape.width) &&
+                    clickY >= shape.y && clickY <= shape.y + Math.abs(shape.height);
+            });
+    }
 
     if (clickedShape) {
+        // Enable resize mode on clicked shape
         state.selectedShape = clickedShape;
         state.resizingShape = clickedShape;
         clickedShape.resizeMode = true;
         redrawAnnotations();
         console.log('Shape resize mode enabled');
+    } else {
+        // Double-click on empty area - deselect everything
+        if (state.selectedShape) {
+            state.selectedShape.resizeMode = false;
+            state.selectedShape = null;
+        }
+        state.selectedImage = null;
+        state.selectedAnnotation = null;
+        state.resizingShape = null;
+        redrawAnnotations();
+        console.log('Deselected all');
     }
 });
 
