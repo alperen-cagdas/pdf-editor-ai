@@ -1823,37 +1823,73 @@ function handleMouseMove(e) {
         const edge = state.shapeResizeEdge;
         const minSize = 20;
 
-        if (edge.includes('n')) {
-            const newHeight = shape.y + Math.abs(shape.height) - currentY;
-            if (newHeight >= minSize) {
-                shape.height = newHeight;
-                shape.y = currentY;
+        // Calculate aspect ratio for shift-constrained resize
+        const originalWidth = Math.abs(shape.width);
+        const originalHeight = Math.abs(shape.height);
+        const aspectRatio = originalWidth / originalHeight || 1;
+
+        let newWidth = originalWidth;
+        let newHeight = originalHeight;
+
+        // Calculate new dimensions based on edge
+        if (edge === 'se') {
+            newWidth = currentX - shape.x;
+            newHeight = currentY - shape.y;
+        } else if (edge === 'sw') {
+            newWidth = shape.x + originalWidth - currentX;
+            newHeight = currentY - shape.y;
+        } else if (edge === 'ne') {
+            newWidth = currentX - shape.x;
+            newHeight = shape.y + originalHeight - currentY;
+        } else if (edge === 'nw') {
+            newWidth = shape.x + originalWidth - currentX;
+            newHeight = shape.y + originalHeight - currentY;
+        } else if (edge === 'n' || edge === 's') {
+            if (edge === 'n') {
+                newHeight = shape.y + originalHeight - currentY;
+            } else {
+                newHeight = currentY - shape.y;
+            }
+            if (e.shiftKey) newWidth = newHeight * aspectRatio;
+        } else if (edge === 'e' || edge === 'w') {
+            if (edge === 'w') {
+                newWidth = shape.x + originalWidth - currentX;
+            } else {
+                newWidth = currentX - shape.x;
+            }
+            if (e.shiftKey) newHeight = newWidth / aspectRatio;
+        }
+
+        // Apply shift constraint for corner handles
+        if (e.shiftKey && (edge === 'se' || edge === 'sw' || edge === 'ne' || edge === 'nw')) {
+            // Use the larger dimension change
+            if (Math.abs(newWidth) > Math.abs(newHeight * aspectRatio)) {
+                newHeight = Math.abs(newWidth) / aspectRatio * Math.sign(newHeight || 1);
+            } else {
+                newWidth = Math.abs(newHeight) * aspectRatio * Math.sign(newWidth || 1);
             }
         }
-        if (edge.includes('s')) {
-            const newHeight = currentY - shape.y;
-            if (newHeight >= minSize) {
-                shape.height = newHeight;
-            }
-        }
+
+        // Ensure minimum size
+        if (Math.abs(newWidth) < minSize) newWidth = minSize * Math.sign(newWidth || 1);
+        if (Math.abs(newHeight) < minSize) newHeight = minSize * Math.sign(newHeight || 1);
+
+        // Apply changes based on edge
         if (edge.includes('w')) {
-            const newWidth = shape.x + Math.abs(shape.width) - currentX;
-            if (newWidth >= minSize) {
-                shape.width = newWidth;
-                shape.x = currentX;
-            }
+            shape.x = shape.x + originalWidth - Math.abs(newWidth);
         }
-        if (edge.includes('e')) {
-            const newWidth = currentX - shape.x;
-            if (newWidth >= minSize) {
-                shape.width = newWidth;
-            }
+        if (edge.includes('n')) {
+            shape.y = shape.y + originalHeight - Math.abs(newHeight);
         }
+
+        shape.width = Math.abs(newWidth);
+        shape.height = Math.abs(newHeight);
 
         updateNormalizedCoordinates(shape);
         redrawAnnotations();
         return;
     }
+
 
     // Hover effect for move tool - show resize cursors when hovering edges of selected annotation/image
     if (state.activeTool === 'move' && !state.draggedAnnotation && !state.draggedImage && !state.resizingAnnotation && !state.resizingImage) {
