@@ -34,7 +34,9 @@ function createWorkspaceState() {
         pendingImage: null,
         resizingAnnotation: null,
         resizingImage: null,
+        resizingShape: null, // NEW: Shape being resized
         resizeEdge: null,
+        shapeResizeEdge: null, // NEW: Edge being resized on shape
         selectedAnnotation: null,
         selectedImage: null,
         selectedShape: null, // NEW: Selected shape
@@ -1389,6 +1391,18 @@ function handleMouseDown(e) {
 
         // Check if clicked on an existing shape annotation
         if (state.shapeAnnotations) {
+            // First check if we're clicking on resize handles of selected shape
+            if (state.selectedShape && state.selectedShape.resizeMode) {
+                const edge = getShapeResizeEdge(state.startX, state.startY, state.selectedShape);
+                if (edge) {
+                    state.resizingShape = state.selectedShape;
+                    state.shapeResizeEdge = edge;
+                    annotationCanvas.style.cursor = getResizeCursor(edge);
+                    console.log('Starting shape resize from edge:', edge);
+                    return;
+                }
+            }
+
             const clickedShape = state.shapeAnnotations
                 .filter(shape => shape.page === state.currentPage)
                 .slice().reverse()
@@ -1402,13 +1416,19 @@ function handleMouseDown(e) {
                         return dist < tolerance;
                     }
                     // For rectangles/circles, use bounding box
+                    const sw = Math.abs(shape.width);
+                    const sh = Math.abs(shape.height);
                     return state.startX >= shape.x &&
-                        state.startX <= shape.x + shape.width &&
+                        state.startX <= shape.x + sw &&
                         state.startY >= shape.y &&
-                        state.startY <= shape.y + shape.height;
+                        state.startY <= shape.y + sh;
                 });
 
             if (clickedShape) {
+                // Turn off resize mode on previously selected shape
+                if (state.selectedShape && state.selectedShape !== clickedShape) {
+                    state.selectedShape.resizeMode = false;
+                }
                 state.draggedShape = clickedShape;
                 state.dragOffsetX = state.startX - clickedShape.x;
                 state.dragOffsetY = state.startY - clickedShape.y;
@@ -1788,11 +1808,49 @@ function handleMouseMove(e) {
     }
 
     // Handle Shape Dragging
-    if (state.draggedShape) {
+    if (state.draggedShape && !state.resizingShape) {
         state.draggedShape.x = currentX - state.dragOffsetX;
         state.draggedShape.y = currentY - state.dragOffsetY;
         // Keep normalized coords in sync with pixel changes
         updateNormalizedCoordinates(state.draggedShape);
+        redrawAnnotations();
+        return;
+    }
+
+    // Handle Shape Resizing
+    if (state.resizingShape) {
+        const shape = state.resizingShape;
+        const edge = state.shapeResizeEdge;
+        const minSize = 20;
+
+        if (edge.includes('n')) {
+            const newHeight = shape.y + Math.abs(shape.height) - currentY;
+            if (newHeight >= minSize) {
+                shape.height = newHeight;
+                shape.y = currentY;
+            }
+        }
+        if (edge.includes('s')) {
+            const newHeight = currentY - shape.y;
+            if (newHeight >= minSize) {
+                shape.height = newHeight;
+            }
+        }
+        if (edge.includes('w')) {
+            const newWidth = shape.x + Math.abs(shape.width) - currentX;
+            if (newWidth >= minSize) {
+                shape.width = newWidth;
+                shape.x = currentX;
+            }
+        }
+        if (edge.includes('e')) {
+            const newWidth = currentX - shape.x;
+            if (newWidth >= minSize) {
+                shape.width = newWidth;
+            }
+        }
+
+        updateNormalizedCoordinates(shape);
         redrawAnnotations();
         return;
     }
@@ -1956,6 +2014,17 @@ function handleMouseUp(e) {
         annotationCanvas.style.cursor = 'default';
         redrawAnnotations();
         updateAnnotationsList();
+        return;
+    }
+
+    // Handle shape resize end
+    if (state.resizingShape) {
+        console.log('Shape resize complete');
+        updateNormalizedCoordinates(state.resizingShape);
+        state.resizingShape = null;
+        state.shapeResizeEdge = null;
+        annotationCanvas.style.cursor = 'default';
+        redrawAnnotations();
         return;
     }
 
@@ -3809,62 +3878,226 @@ window.drawShape = drawShape;
 window.shapeToolState = shapeToolState;
 
 // ================================
-// Shape Keyboard and Mouse Controls
+// Keyboard and Mouse Controls (Shapes, Annotations, Images)
 // ================================
 
-// Clipboard for shape copy/paste
-let shapeClipboard = null;
+// Clipboard for copy/paste
+let clipboard = null;
+let clipboardType = null; // 'shape', 'annotation', 'image'
 
-// Delete selected shape with Del key
+// Undo/Redo History
+const historyStack = [];
+const redoStack = [];
+const MAX_HISTORY = 50;
+
+// Save state to history
+function saveToHistory() {
+    const stateSnapshot = {
+        annotations: JSON.parse(JSON.stringify(state.annotations || [])),
+        imageAnnotations: JSON.parse(JSON.stringify(state.imageAnnotations || [])),
+        shapeAnnotations: JSON.parse(JSON.stringify(state.shapeAnnotations || []))
+    };
+    historyStack.push(stateSnapshot);
+    if (historyStack.length > MAX_HISTORY) {
+        historyStack.shift();
+    }
+    // Clear redo stack on new action
+    redoStack.length = 0;
+}
+
+// Undo
+function undo() {
+    if (historyStack.length === 0) {
+        console.log('Nothing to undo');
+        return;
+    }
+
+    // Save current state to redo stack
+    redoStack.push({
+        annotations: JSON.parse(JSON.stringify(state.annotations || [])),
+        imageAnnotations: JSON.parse(JSON.stringify(state.imageAnnotations || [])),
+        shapeAnnotations: JSON.parse(JSON.stringify(state.shapeAnnotations || []))
+    });
+
+    // Restore previous state
+    const previousState = historyStack.pop();
+    state.annotations = previousState.annotations;
+    state.imageAnnotations = previousState.imageAnnotations;
+    state.shapeAnnotations = previousState.shapeAnnotations;
+
+    // Clear selections
+    state.selectedAnnotation = null;
+    state.selectedImage = null;
+    state.selectedShape = null;
+
+    updateAnnotationsList();
+    redrawAnnotations();
+    console.log('Undo performed');
+}
+
+// Redo
+function redo() {
+    if (redoStack.length === 0) {
+        console.log('Nothing to redo');
+        return;
+    }
+
+    // Save current state to history
+    historyStack.push({
+        annotations: JSON.parse(JSON.stringify(state.annotations || [])),
+        imageAnnotations: JSON.parse(JSON.stringify(state.imageAnnotations || [])),
+        shapeAnnotations: JSON.parse(JSON.stringify(state.shapeAnnotations || []))
+    });
+
+    // Restore redo state
+    const redoState = redoStack.pop();
+    state.annotations = redoState.annotations;
+    state.imageAnnotations = redoState.imageAnnotations;
+    state.shapeAnnotations = redoState.shapeAnnotations;
+
+    // Clear selections
+    state.selectedAnnotation = null;
+    state.selectedImage = null;
+    state.selectedShape = null;
+
+    updateAnnotationsList();
+    redrawAnnotations();
+    console.log('Redo performed');
+}
+
+// Main keyboard handler
 document.addEventListener('keydown', (e) => {
-    // Delete key - delete selected shape
-    if (e.key === 'Delete' && state.selectedShape && state.shapeAnnotations) {
-        const index = state.shapeAnnotations.indexOf(state.selectedShape);
-        if (index > -1) {
-            state.shapeAnnotations.splice(index, 1);
+    // Ignore if typing in input/textarea
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // Ctrl+Z - Undo
+    if (e.ctrlKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+    }
+
+    // Ctrl+Y or Ctrl+Shift+Z - Redo
+    if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'Z')) {
+        e.preventDefault();
+        redo();
+        return;
+    }
+
+    // Delete key - delete selected item
+    if (e.key === 'Delete') {
+        // Delete shape
+        if (state.selectedShape && state.shapeAnnotations) {
+            saveToHistory();
+            const index = state.shapeAnnotations.indexOf(state.selectedShape);
+            if (index > -1) {
+                state.shapeAnnotations.splice(index, 1);
+                state.selectedShape = null;
+                redrawAnnotations();
+                console.log('Shape deleted');
+            }
+            return;
+        }
+
+        // Delete image
+        if (state.selectedImage && state.imageAnnotations) {
+            saveToHistory();
+            const index = state.imageAnnotations.indexOf(state.selectedImage);
+            if (index > -1) {
+                state.imageAnnotations.splice(index, 1);
+                state.selectedImage = null;
+                updateAnnotationsList();
+                redrawAnnotations();
+                console.log('Image deleted');
+            }
+            return;
+        }
+
+        // Delete annotation
+        if (state.selectedAnnotation && state.annotations) {
+            saveToHistory();
+            const index = state.annotations.indexOf(state.selectedAnnotation);
+            if (index > -1) {
+                state.annotations.splice(index, 1);
+                state.selectedAnnotation = null;
+                updateAnnotationsList();
+                redrawAnnotations();
+                console.log('Annotation deleted');
+            }
+            return;
+        }
+    }
+
+    // Ctrl+C - Copy selected item
+    if (e.ctrlKey && e.key === 'c') {
+        if (state.selectedShape) {
+            clipboard = { ...state.selectedShape };
+            clipboardType = 'shape';
+            console.log('Shape copied');
+        } else if (state.selectedImage) {
+            clipboard = { ...state.selectedImage };
+            clipboardType = 'image';
+            console.log('Image copied');
+        } else if (state.selectedAnnotation) {
+            clipboard = { ...state.selectedAnnotation };
+            clipboardType = 'annotation';
+            console.log('Annotation copied');
+        }
+        return;
+    }
+
+    // Ctrl+V - Paste from clipboard
+    if (e.ctrlKey && e.key === 'v' && clipboard && state.pdfDoc) {
+        saveToHistory();
+        const newItem = { ...clipboard };
+        newItem.x += 20;
+        newItem.y += 20;
+        newItem.page = state.currentPage;
+        updateNormalizedCoordinates(newItem);
+
+        if (clipboardType === 'shape') {
+            if (!state.shapeAnnotations) state.shapeAnnotations = [];
+            state.shapeAnnotations.push(newItem);
+            state.selectedShape = newItem;
+            state.selectedImage = null;
+            state.selectedAnnotation = null;
+            console.log('Shape pasted');
+        } else if (clipboardType === 'image') {
+            if (!state.imageAnnotations) state.imageAnnotations = [];
+            state.imageAnnotations.push(newItem);
+            state.selectedImage = newItem;
             state.selectedShape = null;
-            redrawAnnotations();
-            console.log('Shape deleted');
+            state.selectedAnnotation = null;
+            updateAnnotationsList();
+            console.log('Image pasted');
+        } else if (clipboardType === 'annotation') {
+            if (!state.annotations) state.annotations = [];
+            state.annotations.push(newItem);
+            state.selectedAnnotation = newItem;
+            state.selectedShape = null;
+            state.selectedImage = null;
+            updateAnnotationsList();
+            console.log('Annotation pasted');
         }
-    }
 
-    // Ctrl+C - copy selected shape
-    if (e.ctrlKey && e.key === 'c' && state.selectedShape) {
-        shapeClipboard = { ...state.selectedShape };
-        console.log('Shape copied to clipboard');
-    }
-
-    // Ctrl+V - paste shape from clipboard
-    if (e.ctrlKey && e.key === 'v' && shapeClipboard && state.pdfDoc) {
-        const newShape = { ...shapeClipboard };
-        // Offset the pasted shape slightly
-        newShape.x += 20;
-        newShape.y += 20;
-        newShape.page = state.currentPage;
-
-        // Update normalized coordinates
-        updateNormalizedCoordinates(newShape);
-
-        if (!state.shapeAnnotations) {
-            state.shapeAnnotations = [];
-        }
-        state.shapeAnnotations.push(newShape);
-        state.selectedShape = newShape;
-
-        // Update clipboard for next paste
-        shapeClipboard = { ...newShape };
-
+        clipboard = { ...newItem };
         redrawAnnotations();
-        console.log('Shape pasted');
+        return;
     }
 
-    // Escape - deselect shape
-    if (e.key === 'Escape' && state.selectedShape) {
-        state.selectedShape = null;
+    // Escape - deselect all
+    if (e.key === 'Escape') {
+        if (state.selectedShape) {
+            state.selectedShape.resizeMode = false;
+            state.selectedShape = null;
+        }
+        state.selectedImage = null;
+        state.selectedAnnotation = null;
         state.resizingShape = null;
         redrawAnnotations();
     }
 });
+
 
 // Double-click on shape to enable resize mode
 annotationCanvas.addEventListener('dblclick', (e) => {
