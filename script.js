@@ -18,7 +18,9 @@ function createWorkspaceState() {
         activeTool: 'replace',
         annotations: [],
         imageAnnotations: [],
+        shapeAnnotations: [], // NEW: Shape annotations array
         currentAnnotation: null,
+        currentShape: null, // NEW: Current shape being drawn
         isDrawing: false,
         draggedAnnotation: null,
         draggedImage: null,
@@ -34,6 +36,7 @@ function createWorkspaceState() {
         resizeEdge: null,
         selectedAnnotation: null,
         selectedImage: null,
+        selectedShape: null, // NEW: Selected shape
         currentViewport: { width: 1, height: 1 }
     };
 }
@@ -1427,6 +1430,21 @@ function handleMouseDown(e) {
             backgroundColor: clickPointColor
         };
     }
+
+    // Shape tool
+    if (state.activeTool === 'shape' && window.shapeToolState) {
+        state.currentShape = {
+            x: state.startX,
+            y: state.startY,
+            width: 0,
+            height: 0,
+            page: state.currentPage,
+            shapeType: window.shapeToolState.selectedShape,
+            fillStyle: window.shapeToolState.fillStyle,
+            color: window.shapeToolState.color,
+            strokeWidth: window.shapeToolState.strokeWidth
+        };
+    }
 }
 
 function handleMouseMove(e) {
@@ -1798,6 +1816,20 @@ function handleMouseMove(e) {
         return;
     }
 
+    // Shape tool preview
+    if (state.activeTool === 'shape' && state.currentShape) {
+        state.currentShape.width = currentX - state.startX;
+        state.currentShape.height = currentY - state.startY;
+
+        redrawAnnotations();
+
+        // Draw shape preview
+        if (window.drawShape) {
+            window.drawShape(annotationCtx, state.currentShape, true);
+        }
+        return;
+    }
+
     if (state.activeTool !== 'replace' && state.activeTool !== 'add') return;
     if (!state.currentAnnotation) return;
 
@@ -1854,6 +1886,39 @@ function handleMouseUp(e) {
         updateNormalizedCoordinates(state.draggedImage); // Sync base coords
         state.draggedImage = null;
         annotationCanvas.style.cursor = 'grab';
+        return;
+    }
+
+    // Handle shape tool completion
+    if (state.activeTool === 'shape' && state.currentShape) {
+        // Normalize dimensions
+        if (state.currentShape.width < 0) {
+            state.currentShape.x += state.currentShape.width;
+            state.currentShape.width = Math.abs(state.currentShape.width);
+        }
+        if (state.currentShape.height < 0) {
+            state.currentShape.y += state.currentShape.height;
+            state.currentShape.height = Math.abs(state.currentShape.height);
+        }
+
+        // Only add if shape is significant (except for lines/arrows which can be small)
+        const isLineType = state.currentShape.shapeType === 'line' || state.currentShape.shapeType === 'arrow';
+        const minSize = isLineType ? 10 : 20;
+
+        if (Math.max(state.currentShape.width, state.currentShape.height) > minSize) {
+            // Store normalized coordinates
+            updateNormalizedCoordinates(state.currentShape);
+
+            if (!state.shapeAnnotations) {
+                state.shapeAnnotations = [];
+            }
+            state.shapeAnnotations.push({ ...state.currentShape });
+            console.log('Shape added:', state.currentShape);
+        }
+
+        state.currentShape = null;
+        redrawAnnotations();
+        updateAnnotationsList();
         return;
     }
 
@@ -2115,8 +2180,19 @@ function redrawAnnotations() {
     // This calculates fresh pixel coordinates (x,y,w,h) from normalized (0-1) values
     if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
     if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
+    if (state.shapeAnnotations) state.shapeAnnotations.forEach(syncPixelCoordinates);
 
     annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+
+    // Draw shape annotations first (behind text and images)
+    if (state.shapeAnnotations && window.drawShape) {
+        state.shapeAnnotations
+            .filter(shape => shape.page === state.currentPage)
+            .forEach(shape => {
+                shape.selected = (state.selectedShape === shape);
+                window.drawShape(annotationCtx, shape);
+            });
+    }
 
     // Draw saved annotations for current page
     state.annotations
@@ -2770,6 +2846,34 @@ function updateAnnotationsList() {
         html += '</div>';
     });
 
+    // Shape annotations
+    if (state.shapeAnnotations) {
+        state.shapeAnnotations.forEach((shape, index) => {
+            const shapeNames = {
+                'rectangle': 'Dikdörtgen',
+                'circle': 'Daire',
+                'line': 'Çizgi',
+                'arrow': 'Ok'
+            };
+            const shapeName = shapeNames[shape.shapeType] || 'Şekil';
+
+            html += '<div class="annotation-item" onclick="window.goToShapeAnnotation(' + index + ')">';
+            html += '<div>';
+            html += '<div class="annotation-text">';
+            html += '<span class="badge shape">' + shapeName + '</span>';
+            html += shapeName + ' #' + (index + 1);
+            html += '</div>';
+            html += '<div class="annotation-meta">Sayfa ' + shape.page + ' • ' + (shape.fillStyle === 'fill' ? 'Dolu' : 'Çizgi') + ' • ' + shape.color + '</div>';
+            html += '</div>';
+            html += '<div class="annotation-actions">';
+            html += '<button class="delete-btn" onclick="event.stopPropagation(); window.handleDeleteShape(' + index + ')" title="Sil">';
+            html += '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+            html += '</button>';
+            html += '</div>';
+            html += '</div>';
+        });
+    }
+
     annotationsList.innerHTML = html;
 }
 
@@ -2790,6 +2894,30 @@ function handleDeleteImage(index) {
     redrawAnnotations();
 }
 window.handleDeleteImage = handleDeleteImage;
+
+// Delete shape handler
+function handleDeleteShape(index) {
+    console.log('handleDeleteShape called with index:', index);
+    if (state.shapeAnnotations) {
+        state.shapeAnnotations.splice(index, 1);
+        updateAnnotationsList();
+        redrawAnnotations();
+    }
+}
+window.handleDeleteShape = handleDeleteShape;
+
+// Navigate to shape annotation
+function goToShapeAnnotation(index) {
+    if (state.shapeAnnotations && state.shapeAnnotations[index]) {
+        const shape = state.shapeAnnotations[index];
+        if (shape.page !== state.currentPage) {
+            goToPage(shape.page);
+        }
+        state.selectedShape = shape;
+        redrawAnnotations();
+    }
+}
+window.goToShapeAnnotation = goToShapeAnnotation;
 
 // Navigate to image annotation
 function goToImageAnnotation(index) {
@@ -3394,3 +3522,216 @@ annotationCanvas.addEventListener('dblclick', function (e) {
         console.log('Crop confirmed via double click');
     }
 });
+
+// ================================
+// Shape Tool Functionality
+// ================================
+
+// Shape Tool State
+const shapeToolState = {
+    selectedShape: 'rectangle', // rectangle, circle, line, arrow
+    fillStyle: 'stroke', // stroke or fill
+    color: '#667eea',
+    strokeWidth: 2
+};
+
+// DOM Elements
+const addShapeTool = document.getElementById('addShapeTool');
+const shapePopup = document.getElementById('shapePopup');
+const closeShapePopupBtn = document.getElementById('closeShapePopup');
+const shapeOptions = document.querySelectorAll('.shape-option');
+const shapeStyleBtns = document.querySelectorAll('.shape-style-toggle .style-btn');
+const shapeColorInput = document.getElementById('shapeColor');
+const shapeColorValue = document.getElementById('shapeColorValue');
+const shapeStrokeWidth = document.getElementById('shapeStrokeWidth');
+const strokeWidthValue = document.getElementById('strokeWidthValue');
+
+// Toggle Shape Popup
+if (addShapeTool) {
+    addShapeTool.addEventListener('click', () => {
+        if (!state.pdfDoc) {
+            alert('Lütfen önce bir PDF yükleyin.');
+            return;
+        }
+
+        const isVisible = shapePopup.style.display === 'block';
+        shapePopup.style.display = isVisible ? 'none' : 'block';
+
+        if (!isVisible) {
+            // Set tool active
+            setActiveTool('shape');
+            addShapeTool.classList.add('active');
+        }
+    });
+}
+
+// Close Shape Popup
+if (closeShapePopupBtn) {
+    closeShapePopupBtn.addEventListener('click', () => {
+        shapePopup.style.display = 'none';
+    });
+}
+
+// Close popup when clicking outside
+document.addEventListener('click', (e) => {
+    if (shapePopup && shapePopup.style.display === 'block') {
+        if (!shapePopup.contains(e.target) && !addShapeTool.contains(e.target)) {
+            shapePopup.style.display = 'none';
+        }
+    }
+});
+
+// Shape Selection
+shapeOptions.forEach(option => {
+    option.addEventListener('click', () => {
+        shapeOptions.forEach(opt => opt.classList.remove('selected'));
+        option.classList.add('selected');
+        shapeToolState.selectedShape = option.dataset.shape;
+        console.log('Selected shape:', shapeToolState.selectedShape);
+    });
+});
+
+// Style Toggle (stroke/fill)
+shapeStyleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        shapeStyleBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        shapeToolState.fillStyle = btn.dataset.style;
+        console.log('Fill style:', shapeToolState.fillStyle);
+    });
+});
+
+// Color Picker
+if (shapeColorInput) {
+    shapeColorInput.addEventListener('input', (e) => {
+        shapeToolState.color = e.target.value;
+        if (shapeColorValue) {
+            shapeColorValue.textContent = e.target.value.toUpperCase();
+        }
+    });
+}
+
+// Stroke Width Slider
+if (shapeStrokeWidth) {
+    shapeStrokeWidth.addEventListener('input', (e) => {
+        shapeToolState.strokeWidth = parseInt(e.target.value);
+        if (strokeWidthValue) {
+            strokeWidthValue.textContent = e.target.value + 'px';
+        }
+    });
+}
+
+// Draw Shape Function
+function drawShape(ctx, shape, isPreview = false) {
+    ctx.save();
+    ctx.strokeStyle = shape.color;
+    ctx.fillStyle = shape.color;
+    ctx.lineWidth = shape.strokeWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const x = shape.x;
+    const y = shape.y;
+    const w = shape.width;
+    const h = shape.height;
+
+    switch (shape.shapeType) {
+        case 'rectangle':
+            if (shape.fillStyle === 'fill') {
+                ctx.fillRect(x, y, w, h);
+            } else {
+                ctx.strokeRect(x, y, w, h);
+            }
+            break;
+
+        case 'circle':
+            const centerX = x + w / 2;
+            const centerY = y + h / 2;
+            const radiusX = Math.abs(w) / 2;
+            const radiusY = Math.abs(h) / 2;
+
+            ctx.beginPath();
+            ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, Math.PI * 2);
+            if (shape.fillStyle === 'fill') {
+                ctx.fill();
+            } else {
+                ctx.stroke();
+            }
+            break;
+
+        case 'line':
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + w, y + h);
+            ctx.stroke();
+            break;
+
+        case 'arrow':
+            // Draw line
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + w, y + h);
+            ctx.stroke();
+
+            // Draw arrowhead
+            const angle = Math.atan2(h, w);
+            const headLength = 15;
+
+            ctx.beginPath();
+            ctx.moveTo(x + w, y + h);
+            ctx.lineTo(
+                x + w - headLength * Math.cos(angle - Math.PI / 6),
+                y + h - headLength * Math.sin(angle - Math.PI / 6)
+            );
+            ctx.moveTo(x + w, y + h);
+            ctx.lineTo(
+                x + w - headLength * Math.cos(angle + Math.PI / 6),
+                y + h - headLength * Math.sin(angle + Math.PI / 6)
+            );
+            ctx.stroke();
+            break;
+    }
+
+    // Draw selection handles if selected
+    if (shape.selected && !isPreview) {
+        ctx.strokeStyle = '#667eea';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.strokeRect(x - 5, y - 5, w + 10, h + 10);
+        ctx.setLineDash([]);
+    }
+
+    ctx.restore();
+}
+
+// Redraw all shapes
+function redrawShapes() {
+    if (!state.shapeAnnotations) return;
+
+    state.shapeAnnotations.forEach(shape => {
+        if (shape.page === state.currentPage) {
+            drawShape(annotationCtx, shape);
+        }
+    });
+}
+
+// Add shape tool to setActiveTool
+const originalSetActiveTool = setActiveTool;
+setActiveTool = function (tool) {
+    // Close shape popup when switching tools
+    if (tool !== 'shape' && shapePopup) {
+        shapePopup.style.display = 'none';
+    }
+
+    // Remove active class from shape tool if not selected
+    if (tool !== 'shape' && addShapeTool) {
+        addShapeTool.classList.remove('active');
+    }
+
+    originalSetActiveTool(tool);
+};
+
+// Export for use in redrawAnnotations
+window.redrawShapes = redrawShapes;
+window.drawShape = drawShape;
+window.shapeToolState = shapeToolState;

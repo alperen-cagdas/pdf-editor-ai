@@ -32,3 +32,9 @@
     color: #ed8936;
     border: 1px solid rgba(237, 137, 54, 0.3);
 }
+
+.badge.shape {
+    background: rgba(102, 126, 234, 0.2);
+    color: #667eea;
+    border: 1px solid rgba(102, 126, 234, 0.3);
+}

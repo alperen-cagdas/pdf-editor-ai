@@ -78,6 +78,93 @@
                             Görsel Ekle
                         </button>
                         <input type="file" id="imageInput" accept="image/jpeg,image/png,image/gif,image/webp" hidden>
+
+                        <!-- Shape Tool with Popup -->
+                        <div class="shape-tool-container">
+                            <button id="addShapeTool" class="tool-btn">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <rect x="3" y="3" width="8" height="8" stroke-width="2" stroke-linecap="round"
+                                        stroke-linejoin="round" />
+                                    <circle cx="17" cy="7" r="4" stroke-width="2" />
+                                    <line x1="3" y1="20" x2="21" y2="20" stroke-width="2" stroke-linecap="round" />
+                                </svg>
+                                Şekil Ekle
+                            </button>
+
+                            <!-- Shape Selection Popup -->
+                            <div id="shapePopup" class="shape-popup" style="display: none;">
+                                <div class="shape-popup-header">
+                                    <h4>Şekil Seç</h4>
+                                    <button id="closeShapePopup" class="close-popup-btn">&times;</button>
+                                </div>
+
+                                <div class="shape-options">
+                                    <button class="shape-option" data-shape="rectangle" title="Dikdörtgen">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <rect x="3" y="5" width="18" height="14" rx="2" />
+                                        </svg>
+                                        <span>Dikdörtgen</span>
+                                    </button>
+                                    <button class="shape-option" data-shape="circle" title="Daire">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <circle cx="12" cy="12" r="9" />
+                                        </svg>
+                                        <span>Daire</span>
+                                    </button>
+                                    <button class="shape-option" data-shape="line" title="Çizgi">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <line x1="4" y1="20" x2="20" y2="4" />
+                                        </svg>
+                                        <span>Çizgi</span>
+                                    </button>
+                                    <button class="shape-option" data-shape="arrow" title="Ok">
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
+                                            stroke="currentColor" stroke-width="2">
+                                            <line x1="4" y1="20" x2="20" y2="4" />
+                                            <polyline points="10,4 20,4 20,14" />
+                                        </svg>
+                                        <span>Ok</span>
+                                    </button>
+                                </div>
+
+                                <div class="shape-settings">
+                                    <div class="shape-setting-row">
+                                        <label>Stil</label>
+                                        <div class="shape-style-toggle">
+                                            <button class="style-btn active" data-style="stroke" title="Sadece Çizgi">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                                                </svg>
+                                            </button>
+                                            <button class="style-btn" data-style="fill" title="İçi Dolu">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"
+                                                    stroke="currentColor" stroke-width="2">
+                                                    <rect x="4" y="4" width="16" height="16" rx="2" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div class="shape-setting-row">
+                                        <label>Renk</label>
+                                        <div class="shape-color-picker">
+                                            <input type="color" id="shapeColor" value="#667eea">
+                                            <span id="shapeColorValue">#667EEA</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="shape-setting-row">
+                                        <label>Çizgi Kalınlığı</label>
+                                        <input type="range" id="shapeStrokeWidth" min="1" max="10" value="2">
+                                        <span id="strokeWidthValue">2px</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                         <button id="removeObjectTool" class="tool-btn">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                                 <path d="M20 5H9l-7 7 7 7h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2z" stroke-width="2"
