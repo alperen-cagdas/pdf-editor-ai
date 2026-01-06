@@ -24,6 +24,7 @@ function createWorkspaceState() {
         isDrawing: false,
         draggedAnnotation: null,
         draggedImage: null,
+        draggedShape: null, // NEW: Shape being dragged
         dragOffsetX: 0,
         dragOffsetY: 0,
         startX: 0,
@@ -1293,6 +1294,36 @@ function setActiveTool(tool) {
     }
 }
 
+// Helper function to calculate distance from point to line segment
+function pointToLineDistance(px, py, x1, y1, x2, y2) {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+
+    if (lenSq !== 0) param = dot / lenSq;
+
+    let xx, yy;
+    if (param < 0) {
+        xx = x1;
+        yy = y1;
+    } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+    } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+    }
+
+    const dx = px - xx;
+    const dy = py - yy;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
 // Mouse Event Handlers
 function handleMouseDown(e) {
     if (!state.pdfDoc) return;
@@ -1308,6 +1339,7 @@ function handleMouseDown(e) {
     // Ensure all annotations have current bitmap coordinates for hit detection
     if (state.annotations) state.annotations.forEach(syncPixelCoordinates);
     if (state.imageAnnotations) state.imageAnnotations.forEach(syncPixelCoordinates);
+    if (state.shapeAnnotations) state.shapeAnnotations.forEach(syncPixelCoordinates);
 
     if (state.activeTool === 'move') {
         // Check if starting to resize selected annotation
@@ -1353,6 +1385,38 @@ function handleMouseDown(e) {
             state.dragOffsetY = state.startY - clickedImage.y;
             annotationCanvas.style.cursor = 'grabbing';
             return;
+        }
+
+        // Check if clicked on an existing shape annotation
+        if (state.shapeAnnotations) {
+            const clickedShape = state.shapeAnnotations
+                .filter(shape => shape.page === state.currentPage)
+                .slice().reverse()
+                .find(shape => {
+                    // For lines/arrows, use a line hit test
+                    if (shape.shapeType === 'line' || shape.shapeType === 'arrow') {
+                        const tolerance = 10;
+                        const x1 = shape.x, y1 = shape.y;
+                        const x2 = shape.x + shape.width, y2 = shape.y + shape.height;
+                        const dist = pointToLineDistance(state.startX, state.startY, x1, y1, x2, y2);
+                        return dist < tolerance;
+                    }
+                    // For rectangles/circles, use bounding box
+                    return state.startX >= shape.x &&
+                        state.startX <= shape.x + shape.width &&
+                        state.startY >= shape.y &&
+                        state.startY <= shape.y + shape.height;
+                });
+
+            if (clickedShape) {
+                state.draggedShape = clickedShape;
+                state.dragOffsetX = state.startX - clickedShape.x;
+                state.dragOffsetY = state.startY - clickedShape.y;
+                state.selectedShape = clickedShape;
+                annotationCanvas.style.cursor = 'grabbing';
+                redrawAnnotations();
+                return;
+            }
         }
 
         // Check if clicked on an existing text annotation
@@ -1723,6 +1787,16 @@ function handleMouseMove(e) {
         return;
     }
 
+    // Handle Shape Dragging
+    if (state.draggedShape) {
+        state.draggedShape.x = currentX - state.dragOffsetX;
+        state.draggedShape.y = currentY - state.dragOffsetY;
+        // Keep normalized coords in sync with pixel changes
+        updateNormalizedCoordinates(state.draggedShape);
+        redrawAnnotations();
+        return;
+    }
+
     // Hover effect for move tool - show resize cursors when hovering edges of selected annotation/image
     if (state.activeTool === 'move' && !state.draggedAnnotation && !state.draggedImage && !state.resizingAnnotation && !state.resizingImage) {
         // Check resize cursor for selected annotation
@@ -1889,23 +1963,37 @@ function handleMouseUp(e) {
         return;
     }
 
+    // Handle shape drag end
+    if (state.draggedShape) {
+        updateNormalizedCoordinates(state.draggedShape); // Sync base coords
+        state.draggedShape = null;
+        annotationCanvas.style.cursor = 'grab';
+        updateAnnotationsList();
+        return;
+    }
+
     // Handle shape tool completion
     if (state.activeTool === 'shape' && state.currentShape) {
-        // Normalize dimensions
-        if (state.currentShape.width < 0) {
-            state.currentShape.x += state.currentShape.width;
-            state.currentShape.width = Math.abs(state.currentShape.width);
-        }
-        if (state.currentShape.height < 0) {
-            state.currentShape.y += state.currentShape.height;
-            state.currentShape.height = Math.abs(state.currentShape.height);
+        // Only normalize dimensions for rectangle and circle (not for line/arrow to preserve direction)
+        const isLineType = state.currentShape.shapeType === 'line' || state.currentShape.shapeType === 'arrow';
+
+        if (!isLineType) {
+            // Normalize dimensions for rectangles and circles
+            if (state.currentShape.width < 0) {
+                state.currentShape.x += state.currentShape.width;
+                state.currentShape.width = Math.abs(state.currentShape.width);
+            }
+            if (state.currentShape.height < 0) {
+                state.currentShape.y += state.currentShape.height;
+                state.currentShape.height = Math.abs(state.currentShape.height);
+            }
         }
 
         // Only add if shape is significant (except for lines/arrows which can be small)
-        const isLineType = state.currentShape.shapeType === 'line' || state.currentShape.shapeType === 'arrow';
         const minSize = isLineType ? 10 : 20;
+        const shapeSize = Math.max(Math.abs(state.currentShape.width), Math.abs(state.currentShape.height));
 
-        if (Math.max(state.currentShape.width, state.currentShape.height) > minSize) {
+        if (shapeSize > minSize) {
             // Store normalized coordinates
             updateNormalizedCoordinates(state.currentShape);
 

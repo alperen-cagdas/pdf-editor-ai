@@ -1342,13 +1342,19 @@ button.password-toggle svg {
 
 .shape-tool-container {
     position: relative;
+    width: 100%;
+}
+
+.shape-tool-container .tool-btn {
+    width: 100%;
 }
 
 .shape-popup {
     position: absolute;
     top: 100%;
     left: 0;
-    width: 260px;
+    right: 0;
+    width: 100%;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 12px;
