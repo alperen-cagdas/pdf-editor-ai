@@ -2,6 +2,48 @@
 
 Tüm önemli değişiklikler bu dosyada belgelenir.
 
+## [3.0.0] - 2026-01-06 - **Şekil Ekle & Gelişmiş Kontroller** 🎨
+
+### Yeni Özellikler
+
+#### 🔷 Şekil Ekleme Aracı
+- **4 Şekil Türü:** Dikdörtgen, Daire, Çizgi, Ok
+- **2 Stil Seçeneği:** Sadece çizgi (stroke) veya içi dolu (fill)
+- **Renk Seçici:** Herhangi bir renk seçilebilir
+- **Çizgi Kalınlığı:** 1-10px arası ayarlanabilir slider
+- Popup menü sidebar genişliğinde
+
+#### ⌨️ Klavye Kısayolları
+- **Del** - Seçili öğeyi sil (şekil, görsel, metin)
+- **Ctrl+C** - Seçili öğeyi kopyala
+- **Ctrl+V** - Yapıştır (+20px offset ile)
+- **Ctrl+Z** - Geri Al (Undo) - 50 adım geçmiş
+- **Ctrl+Y** - Yinele (Redo)
+- **Escape** - Tüm seçimleri kaldır
+
+#### ⬅️➡️ Undo/Redo Sistemi
+- 50 adıma kadar geri alma desteği
+- Annotations, images ve shapes için tam destek
+- Sil, ekle, taşı işlemleri geri alınabilir
+
+#### 🔄 Shift Tuşu Desteği
+- **Şekil çizerken Shift:** Mükemmel kare/daire
+- **Resize ederken Shift:** Orantılı boyutlandırma (aspect ratio korunur)
+
+#### 🖱️ Gelişmiş Mouse Kontrolleri
+- **Tek tık:** Seç ve sürükle
+- **Çift tık şekle:** Resize modu (köşe tutamakları görünür)
+- **Çift tık boş alana:** Tüm seçimleri kaldır
+- Şekiller Seç/Taşı aracıyla taşınabilir
+
+### İyileştirmeler
+- ✅ Arka plan rengi düzenleme paneli iyileştirildi
+- ✅ Obje Kaldır için ayrı düzenleme modu
+- ✅ Çizgi/Ok yönü mouse hareketine göre belirlenir
+- ✅ Dinamik panel başlıkları (Metin Düzenle / Obje Kaldır)
+
+---
+
 ## [2.1.0] - 2025-12-10 - **Multi-Tab & Piksellendir** 🚀
 
 ### Yeni Özellikler
