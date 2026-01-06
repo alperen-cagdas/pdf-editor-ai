@@ -40,6 +40,7 @@ function createWorkspaceState() {
         selectedAnnotation: null,
         selectedImage: null,
         selectedShape: null, // NEW: Selected shape
+        croppingImage: null, // Image in crop mode
         currentViewport: { width: 1, height: 1 }
     };
 }
@@ -1753,17 +1754,26 @@ function handleMouseMove(e) {
             }
         } else {
             // Free resize for edge handles (n, s, e, w)
+            // With Shift, maintain aspect ratio
+            const shiftHeld = e.shiftKey;
+
             if (edge.includes('n')) {
                 const newHeight = img.y + img.height - currentY;
                 if (newHeight >= minSize) {
                     img.y = currentY;
                     img.height = newHeight;
+                    if (shiftHeld) {
+                        img.width = newHeight * aspectRatio;
+                    }
                 }
             }
             if (edge.includes('s')) {
                 const newHeight = currentY - img.y;
                 if (newHeight >= minSize) {
                     img.height = newHeight;
+                    if (shiftHeld) {
+                        img.width = newHeight * aspectRatio;
+                    }
                 }
             }
             if (edge.includes('w')) {
@@ -1771,12 +1781,18 @@ function handleMouseMove(e) {
                 if (newWidth >= minSize) {
                     img.x = currentX;
                     img.width = newWidth;
+                    if (shiftHeld) {
+                        img.height = newWidth / aspectRatio;
+                    }
                 }
             }
             if (edge.includes('e')) {
                 const newWidth = currentX - img.x;
                 if (newWidth >= minSize) {
                     img.width = newWidth;
+                    if (shiftHeld) {
+                        img.height = newWidth / aspectRatio;
+                    }
                 }
             }
         }
@@ -4162,22 +4178,48 @@ annotationCanvas.addEventListener('dblclick', (e) => {
             });
     }
 
+    // Find clicked image
+    let clickedImage = null;
+    if (state.imageAnnotations) {
+        clickedImage = state.imageAnnotations
+            .filter(img => img.page === state.currentPage)
+            .slice().reverse()
+            .find(img =>
+                clickX >= img.x && clickX <= img.x + img.width &&
+                clickY >= img.y && clickY <= img.y + img.height
+            );
+    }
+
     if (clickedShape) {
         // Enable resize mode on clicked shape
+        if (state.selectedImage) state.selectedImage.resizeMode = false;
         state.selectedShape = clickedShape;
         state.resizingShape = clickedShape;
         clickedShape.resizeMode = true;
+        state.selectedImage = null;
         redrawAnnotations();
         console.log('Shape resize mode enabled');
+    } else if (clickedImage) {
+        // Enable resize mode on clicked image
+        if (state.selectedShape) state.selectedShape.resizeMode = false;
+        state.selectedImage = clickedImage;
+        clickedImage.resizeMode = true;
+        state.selectedShape = null;
+        redrawAnnotations();
+        console.log('Image resize mode enabled');
     } else {
         // Double-click on empty area - deselect everything
         if (state.selectedShape) {
             state.selectedShape.resizeMode = false;
             state.selectedShape = null;
         }
-        state.selectedImage = null;
+        if (state.selectedImage) {
+            state.selectedImage.resizeMode = false;
+            state.selectedImage = null;
+        }
         state.selectedAnnotation = null;
         state.resizingShape = null;
+        state.croppingImage = null;
         redrawAnnotations();
         console.log('Deselected all');
     }
